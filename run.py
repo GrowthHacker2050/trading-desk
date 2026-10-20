@@ -3,12 +3,17 @@
 
 Runs on GitHub Actions every 15 minutes:
   1. Reads this week's setups from the CONFIG message in Matt's Discord (read only, posts nothing).
-  2. Pulls live OANDA prices, candles, news and currency strength.
+  2. Pulls live OANDA prices and candles from TradingView, news from Forex Factory, currency strength.
   3. Writes site/snapshot.json + site/index.html, which GitHub Pages serves.
 Off-list ideas (the heavy scan of 28 pairs + gold) refresh once an hour; other runs reuse the last ones.
 """
-import json, os, shutil, sys, urllib.request
+import json, os, shutil, subprocess, sys, urllib.request
 from datetime import datetime, timezone
+
+try:
+    import websocket  # noqa: F401  (TradingView chart feed)
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "websocket-client"])
 
 import engine
 
@@ -51,14 +56,34 @@ def main():
     else:
         snap["ideas"] = prev.get("ideas", [])
     snap["watch_first"] = watch_first(snap["pairs"])
+    charts = {}
+    for p in snap["pairs"]:  # last ~3 weeks of 4-hour candles for the plan chart on each card
+        if p["pair"] not in charts:
+            dp = 2 if p["pair"] == "XAUUSD" else 3 if "JPY" in p["pair"] else 5
+            charts[p["pair"]] = [[int(b["t"]), round(b["o"], dp), round(b["h"], dp), round(b["l"], dp), round(b["c"], dp)] for b in engine.candles(p["pair"], 4, 110)]
+    snap["chart4h"] = charts
+    q = engine.live([p["pair"] for p in snap["pairs"]])
+    suggested = {}
+    for p in snap["pairs"]:  # where price has turned 3+ times on the 4-hour: candidate areas of interest
+        if p["pair"] in suggested: continue
+        price, atr = q[p["pair"]]["price"], q[p["pair"]]["atr4"]
+        mine = [x["zone"] for x in snap["pairs"] if x["pair"] == p["pair"]]
+        zs = [z for z in engine.find_zones(engine.candles(p["pair"], 4, 360), atr)
+              if not any(z[0] <= m[1] and z[1] >= m[0] for m in mine)]
+        zs = sorted(zs, key=lambda z: abs((z[0] + z[1]) / 2 - price))[:4]
+        dp = 2 if p["pair"] == "XAUUSD" else 3 if "JPY" in p["pair"] else 5
+        suggested[p["pair"]] = [[round(z[0], dp), round(z[1], dp), z[2]] for z in zs]
+    snap["zones4h"] = suggested
     snap["open_trades"] = ["Open trades are tracked in Discord #trade-log."]
     r = snap.get("risk") or {}
     snap["risk"] = {"pct_a": r.get("pct_a"), "pct_ctt": r.get("pct_ctt")}  # balance stays private: the page is public
     snap["source"] = "github"
+    snap["candle_source"] = dict(engine.CANDLE_SOURCE)
     os.makedirs(SITE, exist_ok=True)
     json.dump(snap, open(f"{SITE}/snapshot.json", "w"))
     shutil.copy("web/index.html" if os.path.exists("web/index.html") else "index.html", f"{SITE}/index.html")
     print("wrote", len(snap["pairs"]), "pairs,", len(snap["ideas"]), "ideas, updated", snap["updated_cot"])
+    print("candles from:", snap["candle_source"])
 
 
 if __name__ == "__main__":

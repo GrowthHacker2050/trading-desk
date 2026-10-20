@@ -53,6 +53,20 @@ h2{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.03e
 .main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
 @media (max-width:980px){.main{grid-template-columns:minmax(0,1fr)}}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.cbtns{display:flex;gap:8px;flex-wrap:wrap}
+.cbtn{font:600 13px var(--body);padding:8px 12px;border-radius:7px;border:1px solid var(--teal);background:var(--teal);color:var(--teal-fg);cursor:pointer;text-decoration:none}
+.cbtn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
+#chartDlg{width:min(1100px,96vw);max-height:94vh;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--fg);padding:0}
+#chartDlg::backdrop{background:rgba(0,0,0,.55)}
+.dhead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dhead h3{margin:0;font:700 22px var(--display);letter-spacing:.02em}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tab{font:600 13px var(--body);padding:7px 11px;border-radius:7px;border:1px solid var(--line);background:var(--sunk);color:var(--fg);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--teal);color:var(--teal-fg);border-color:var(--teal)}
+.xbtn{font:600 18px var(--body);background:none;border:0;color:var(--muted);cursor:pointer;padding:4px 8px}
+#chartBox{height:min(62vh,560px);min-height:320px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;min-width:0}
 .ctop{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .pair{font-family:var(--display);font-weight:700;font-size:24px;letter-spacing:.02em}
@@ -187,6 +201,14 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
   <p class="foot">Prices: OANDA, refreshed every 15 minutes. Trend: market structure on closed candles. Your call on every trade — not financial advice.</p>
 </div>
 
+<dialog id="chartDlg" aria-label="Pair chart">
+  <div class="dhead"><h3 id="dTitle">Chart</h3><span class="m" id="dSub"></span>
+    <div class="tabs" role="tablist"><button class="tab" role="tab" id="tPlan" aria-selected="true">4-hour plan</button><button class="tab" role="tab" id="tLive" aria-selected="false">Live chart</button></div>
+    <a class="cbtn ghost" id="dTv" target="_blank" rel="noopener">Open on TradingView</a>
+    <button class="xbtn" id="dClose" aria-label="Close">✕</button></div>
+  <div id="chartBox"></div>
+  <div class="legend" id="dLegend"></div>
+</dialog>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -277,6 +299,8 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
         <dl class="kv"><dt>Zone</dt><dd>${lo} – ${hi}</dd><dt>Your entry</dt><dd>${en}</dd><dt>Stop loss</dt><dd>${sl}</dd><dt>Take profit</dt><dd>${tp}</dd>
           <dt>Setup invalid if price closes ${esc(p.invalid?.side)}</dt><dd>${esc(p.invalid?.level)}</dd></dl>
         <div class="wait">${pats ? `<b>Pattern on the last closed candle:</b> ${pats}` : `<b>Waiting for:</b> price ${p.status === "AT ZONE" ? "to react in the zone, then " : "to reach the zone, then "}${need}.`}</div>
+        <div class="cbtns"><button type="button" class="cbtn" data-k="${esc(p.pair)}|${esc(p.side)}">4-hour chart with your levels</button>
+          <a class="cbtn ghost" href="https://www.tradingview.com/symbols/OANDA-${esc(p.pair)}/" target="_blank" rel="noopener">Open on TradingView</a></div>
       </article>`;
     }).join("") || '<div class="panel empty">No setups loaded for this week. Post your Sunday screenshots in #ask-claude.</div>';
 
@@ -335,6 +359,90 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
   drawStrip(); tick();
   setInterval(tick, 1000);
   setInterval(drawStrip, 10 * 60 * 1000);
+
+  // ---------- charts: 4-hour plan (TradingView Lightweight Charts) + live TradingView chart ----------
+  let chartObj = null, cur = null;
+  const loadScript = src => new Promise((ok, bad) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); });
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const dark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+  const dps = pair => pair === "XAUUSD" ? 2 : /JPY/.test(pair) ? 3 : 5;
+  const tvSym = pair => "OANDA:" + pair;
+  function clearBox() { if (chartObj) { chartObj.remove(); chartObj = null; } $("chartBox").innerHTML = ""; }
+  async function drawPlan() {
+    clearBox(); const p = cur; const bars = (snap.chart4h || {})[p.pair] || [];
+    if (!bars.length) { $("chartBox").innerHTML = '<p class="empty" style="padding:16px">Chart data arrives with the next 15-minute update.</p>'; return; }
+    try { await loadScript("https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"); }
+    catch (e) { $("chartBox").innerHTML = '<p class="empty" style="padding:16px">Chart library could not load. Check your connection.</p>'; return; }
+    const box = $("chartBox"), off = -5 * 3600, step = 4 * 3600, d = dps(p.pair);
+    box.style.position = "relative";
+    chartObj = LightweightCharts.createChart(box, { autoSize: true,
+      layout: { background: { color: css("--surface") }, textColor: css("--muted"), fontFamily: "IBM Plex Mono, monospace" },
+      grid: { vertLines: { visible: false }, horzLines: { color: css("--line") } },
+      rightPriceScale: { borderColor: css("--line"), scaleMargins: { top: 0.08, bottom: 0.08 } }, timeScale: { borderColor: css("--line"), timeVisible: true, rightOffset: 2 },
+      localization: { priceFormatter: x => x.toFixed(d) } });
+    const s = chartObj.addCandlestickSeries({ upColor: css("--buy"), downColor: css("--sell"), borderVisible: false, wickUpColor: css("--buy"), wickDownColor: css("--sell"),
+      priceFormat: { type: "price", precision: d, minMove: Math.pow(10, -d) } });
+    const data = bars.map(b => ({ time: b[0] + off, open: b[1], high: b[2], low: b[3], close: b[4] }));
+    const t0 = data[data.length - 1].time, fut = n => t0 + n * step;
+    s.setData([...data, ...Array.from({ length: 14 }, (_, i) => ({ time: fut(i + 1) }))]);  // empty space on the right for the plan
+    const [lo, hi] = p.zone, [en, sl, tp] = p.plan, buy = p.side === "BUY", last = data[data.length - 1].close;
+    // projected path: price to your entry, reaction, then toward take profit
+    const swingBack = en + (sl - en) * 0.45, mid = en + (tp - en) * 0.4;
+    const path = chartObj.addLineSeries({ color: "#2f80ed", lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    path.setData([{ time: t0, value: last }, { time: fut(3), value: en }, { time: fut(6), value: mid }, { time: fut(8), value: swingBack }, { time: fut(13), value: tp }]);
+    s.createPriceLine({ price: +en, title: "Entry", color: "#2f80ed", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true });
+    s.createPriceLine({ price: +sl, title: "Stop loss", color: css("--sell"), lineWidth: 1, axisLabelVisible: true });
+    s.createPriceLine({ price: +tp, title: "Take profit", color: css("--buy"), lineWidth: 1, axisLabelVisible: true });
+    if (p.invalid?.level != null) s.createPriceLine({ price: +p.invalid.level, title: "Invalid", color: css("--muted"), lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false });
+    // overlay: shaded zones + stop loss / take profit box (redrawn as you scroll or zoom)
+    const ov = document.createElement("div"); ov.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2"; box.appendChild(ov);
+    const sug = (snap.zones4h || {})[p.pair] || [];
+    const rects = [{ lo, hi, bg: "rgba(217,87,43,.20)", bd: css("--heat"), label: "Your zone" },
+      ...sug.map(z => ({ lo: z[0], hi: z[1], bg: "rgba(44,90,96,.16)", bd: "rgba(90,150,158,.75)", label: `4-hour zone · ${z[2]} touches` }))];
+    const draw = () => {
+      if (!chartObj) return;
+      const W = box.clientWidth - chartObj.priceScale("right").width(), ts = chartObj.timeScale();
+      const y = v => s.priceToCoordinate(+v), x = t => ts.timeToCoordinate(t);
+      let html = "";
+      rects.forEach(r => { const a = y(r.hi), b = y(r.lo); if (a == null || b == null) return;
+        html += `<div style="position:absolute;left:0;width:${W}px;top:${Math.min(a, b)}px;height:${Math.max(2, Math.abs(b - a))}px;background:${r.bg};border-top:1px solid ${r.bd};border-bottom:1px solid ${r.bd}"><span style="position:absolute;left:6px;top:2px;font:600 11px var(--body);color:${r.bd}">${r.label}</span></div>`; });
+      const xa = x(fut(1)), xb = x(fut(12)), ye = y(en), ys = y(sl), yt = y(tp);
+      if (xa != null && xb != null && ye != null) {
+        const w = Math.max(10, Math.min(xb, W) - xa);
+        if (ys != null) html += `<div style="position:absolute;left:${xa}px;width:${w}px;top:${Math.min(ye, ys)}px;height:${Math.abs(ys - ye)}px;background:rgba(178,58,42,.28);border:1px solid rgba(178,58,42,.6)"></div>`;
+        if (yt != null) html += `<div style="position:absolute;left:${xa}px;width:${w}px;top:${Math.min(ye, yt)}px;height:${Math.abs(yt - ye)}px;background:rgba(31,122,82,.24);border:1px solid rgba(31,122,82,.6)"></div>`;
+      }
+      ov.innerHTML = html;
+      if (chartObj) requestAnimationFrame(draw);
+    };
+    chartObj.timeScale().setVisibleLogicalRange({ from: Math.max(0, data.length - 70), to: data.length + 14 });
+    requestAnimationFrame(draw);
+    const rr = Math.abs(tp - en) / Math.abs(en - sl);
+    $("dLegend").innerHTML = `<span><i style="background:${css("--heat")}"></i>Your zone <b class="m">${lo} – ${hi}</b></span>` +
+      `<span><i style="background:#2f80ed"></i>Entry <b class="m">${en}</b></span><span><i style="background:${css("--sell")}"></i>Stop loss <b class="m">${sl}</b></span>` +
+      `<span><i style="background:${css("--buy")}"></i>Take profit <b class="m">${tp}</b> (${rr.toFixed(1)}x your risk)</span>` +
+      (sug.length ? `<span><i style="background:rgba(44,90,96,.7)"></i>Other 4-hour zones (3+ touches): ${sug.map(z => `<b class="m">${z[0]}–${z[1]}</b>`).join(", ")}</span>` : "") +
+      `<span>Blue line = expected path if the setup plays out, not a forecast. 4-hour OANDA candles from TradingView, Colombia time, refreshed every 15 minutes.</span>`;
+  }
+  async function drawLive() {
+    clearBox(); const p = cur; const id = "tvlive"; $("chartBox").innerHTML = `<div id="${id}" style="height:100%"></div>`;
+    $("dLegend").innerHTML = "<span>Live TradingView chart (OANDA price, real time). Your levels are on the 4-hour plan tab; drawings aren't possible on this free chart, and it is separate from your TradingView account.</span>";
+    try { await loadScript("https://s3.tradingview.com/tv.js"); } catch (e) { $(id).innerHTML = '<p class="empty" style="padding:16px">TradingView could not load.</p>'; return; }
+    new TradingView.widget({ container_id: id, autosize: true, symbol: tvSym(p.pair), interval: "240", timezone: "America/Bogota", theme: dark() ? "dark" : "light",
+      style: "1", locale: "en", allow_symbol_change: false, hide_side_toolbar: true, save_image: false, withdateranges: true });
+  }
+  function setTab(live) { $("tPlan").setAttribute("aria-selected", !live); $("tLive").setAttribute("aria-selected", live); (live ? drawLive : drawPlan)(); }
+  $("cards").addEventListener("click", e => {
+    const b = e.target.closest("button.cbtn"); if (!b || !snap) return;
+    const [pair, side] = b.dataset.k.split("|"); cur = (snap.pairs || []).find(x => x.pair === pair && x.side === side); if (!cur) return;
+    $("dTitle").textContent = `${pair} ${side === "BUY" ? "buy" : "sell"}`; $("dSub").textContent = `Grade ${gradeTxt(cur.grade)} · price ${cur.price}`;
+    $("dTv").href = `https://www.tradingview.com/symbols/OANDA-${pair}/`;
+    $("chartDlg").showModal(); setTab(false);
+  });
+  $("tPlan").addEventListener("click", () => setTab(false)); $("tLive").addEventListener("click", () => setTab(true));
+  $("dClose").addEventListener("click", () => $("chartDlg").close());
+  $("chartDlg").addEventListener("close", () => { clearBox(); cur = null; });
+  $("chartDlg").addEventListener("click", e => { if (e.target === $("chartDlg")) $("chartDlg").close(); });
 
   async function load() {
     try {

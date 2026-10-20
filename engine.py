@@ -75,7 +75,80 @@ def live(pairs):
     return out
 
 
+# ---------------- TradingView candles (same OANDA data as Matt's TradingView charts) ----------------
+_TV_CACHE = {}
+_TV_RES = {1: "60", 2: "120", 4: "240", 24: "1D", 168: "1W"}
+
+
+def _tv_frame(obj):
+    s = obj if isinstance(obj, str) else json.dumps(obj, separators=(",", ":"))
+    return f"~m~{len(s)}~m~{s}"
+
+
+def tv_candles(pair, tf_hours, n=500):
+    """Closed OANDA candles straight from TradingView's chart feed. Raises on any failure (caller falls back)."""
+    key = (pair, tf_hours)
+    if key in _TV_CACHE and len(_TV_CACHE[key]) >= min(n, 1):
+        return _TV_CACHE[key][-n:]
+    import re, random, string, websocket
+    ws = websocket.create_connection("wss://data.tradingview.com/socket.io/websocket",
+                                     header=["Origin: https://www.tradingview.com"], timeout=20)
+    try:
+        cs = "cs_" + "".join(random.choices(string.ascii_lowercase, k=12))
+        send = lambda m, p: ws.send(_tv_frame({"m": m, "p": p}))
+        send("set_auth_token", ["unauthorized_user_token"])
+        send("chart_create_session", [cs, ""])
+        send("resolve_symbol", [cs, "sym_1", "=" + json.dumps({"symbol": f"OANDA:{pair}", "adjustment": "splits"})])
+        send("create_series", [cs, "s1", "s1", "sym_1", _TV_RES[tf_hours], max(n, 500) + 2, ""])
+        bars, deadline = [], time.time() + 25
+        while time.time() < deadline:
+            raw = ws.recv()
+            for part in re.split(r"~m~\d+~m~", raw):
+                if not part: continue
+                if part.startswith("~h~"):
+                    ws.send(_tv_frame(part)); continue
+                try: msg = json.loads(part)
+                except ValueError: continue
+                m = msg.get("m")
+                if m in ("timescale_update", "du"):
+                    ser = (msg.get("p") or [None, {}])[1].get("s1", {}).get("s", [])
+                    if m == "timescale_update": bars = [b["v"] for b in ser]
+                elif m in ("symbol_error", "series_error", "critical_error"):
+                    raise RuntimeError(f"TradingView {m}: {msg.get('p')}")
+                elif m == "series_completed":
+                    deadline = 0
+        if not bars: raise RuntimeError("TradingView returned no candles")
+    finally:
+        try: ws.close()
+        except Exception: pass
+    now = datetime.now(timezone.utc).timestamp()
+    out = []
+    for v in bars:
+        t, o, h, l, c = v[:5]
+        span = tf_hours * 3600 if tf_hours < 168 else 7 * 86400
+        if tf_hours == 24: span = 86400
+        if t + span <= now + 60:  # closed bars only
+            out.append({"t": int(t), "o": o, "h": h, "l": l, "c": c})
+    if len(out) < 10: raise RuntimeError("TradingView returned too few closed candles")
+    _TV_CACHE[key] = out
+    return out[-n:]
+
+
+CANDLE_SOURCE = {}
+
+
 def candles(pair, tf_hours, n=80):
+    """Closed candles from TradingView (OANDA); falls back to the backup feed if TradingView fails."""
+    try:
+        out = tv_candles(pair, tf_hours, n)
+        CANDLE_SOURCE[pair] = "tradingview"
+        return out
+    except Exception as e:
+        CANDLE_SOURCE[pair] = f"backup ({type(e).__name__})"
+        return backup_candles(pair, tf_hours, n)
+
+
+def backup_candles(pair, tf_hours, n=80):
     """Closed candles. tf_hours 1/2/4 built from Yahoo 1H data on the New York 17:00 boundary; 24 = daily, 168 = weekly."""
     sym = "GC=F" if pair == "XAUUSD" else f"{pair}=X"
     if tf_hours >= 168:  # weekly: completed weeks only (the feed's current and last partial bars are unreliable)
