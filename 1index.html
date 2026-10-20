@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Matt's Trading Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky header with live Colombia clock + session; session strip; "watch first" banner; pair cards grid; side column of signals, open trades, news, checklist and lot-size calculator. */
+:root{
+  --bg:#eef2f2; --surface:#ffffff; --sunk:#f4f7f7; --fg:#132226; --muted:#5a6b6f; --line:#d4dedf;
+  --teal:#2c5a60; --teal-fg:#ffffff; --heat:#d9572b; --buy:#1f7a52; --sell:#b23a2a; --warn:#b7791f;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c1416; --surface:#132024; --sunk:#0f1a1d; --fg:#e2ebeb; --muted:#93a6a9; --line:#26383c;
+  --teal:#3f7f87; --teal-fg:#ffffff; --heat:#f06a39; --buy:#3fb57f; --sell:#f0705c; --warn:#e3a944; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1416; --surface:#132024; --sunk:#0f1a1d; --fg:#e2ebeb; --muted:#93a6a9; --line:#26383c;
+  --teal:#3f7f87; --teal-fg:#ffffff; --heat:#f06a39; --buy:#3fb57f; --sell:#f0705c; --warn:#e3a944; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;line-height:1.45}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.hwrap,.wrap{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.hwrap{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding-block:10px}
+h1{font-family:var(--display);font-weight:700;font-size:26px;margin:0;letter-spacing:.02em}
+.clock{font:500 22px var(--mono);font-variant-numeric:tabular-nums}
+.pill{font:600 12px var(--body);letter-spacing:.05em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:var(--sunk);border:1px solid var(--line)}
+.pill.live{background:var(--teal);color:var(--teal-fg);border-color:var(--teal)}
+.fresh{color:var(--muted);font-size:13px;margin-left:auto}
+.wrap{display:grid;gap:18px;padding-block:18px 40px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+h2{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.03em;margin:0 0 10px}
+.lab{font:600 11px var(--body);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.m{font-family:var(--mono);font-variant-numeric:tabular-nums}
+/* session strip */
+.strip{position:relative;display:grid;grid-template-columns:repeat(24,1fr);height:30px;border-radius:4px;overflow:hidden}
+.strip div{border-right:1px solid var(--surface)}
+.bars{position:relative;height:66px;margin-top:6px}
+.bar{position:absolute;height:18px;border-radius:3px;background:var(--teal);color:var(--teal-fg);font:600 11px var(--body);display:flex;align-items:center;padding:0 6px;white-space:nowrap;overflow:hidden}
+.nowline{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--fg);opacity:.6}
+.ticks{position:relative;height:16px;font:500 10px var(--mono);color:var(--muted);margin-top:4px}
+.ticks span{position:absolute;transform:translateX(-50%)}
+.sessrow{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:10px;font-size:13px;color:var(--muted)}
+.sessrow b{color:var(--fg);font-weight:600}
+/* watch first */
+.watch{border-left:4px solid var(--heat);background:var(--surface);border-radius:10px;padding:12px 16px;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.watch p{margin:4px 0 0;font-size:15px}
+/* layout */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+@media (max-width:980px){.main{grid-template-columns:minmax(0,1fr)}}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.cbtns{display:flex;gap:8px;flex-wrap:wrap}
+.cbtn{font:600 13px var(--body);padding:8px 12px;border-radius:7px;border:1px solid var(--teal);background:var(--teal);color:var(--teal-fg);cursor:pointer;text-decoration:none}
+.cbtn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
+#chartDlg{width:min(1100px,96vw);max-height:94vh;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--fg);padding:0}
+#chartDlg::backdrop{background:rgba(0,0,0,.55)}
+.dhead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dhead h3{margin:0;font:700 22px var(--display);letter-spacing:.02em}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tab{font:600 13px var(--body);padding:7px 11px;border-radius:7px;border:1px solid var(--line);background:var(--sunk);color:var(--fg);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--teal);color:var(--teal-fg);border-color:var(--teal)}
+.xbtn{font:600 18px var(--body);background:none;border:0;color:var(--muted);cursor:pointer;padding:4px 8px}
+#chartBox{height:min(62vh,560px);min-height:320px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;min-width:0}
+.ctop{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.pair{font-family:var(--display);font-weight:700;font-size:24px;letter-spacing:.02em}
+.side{font:700 12px var(--body);letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px;color:#fff}
+.side.BUY{background:var(--buy)} .side.SELL{background:var(--sell)}
+.grade{font:600 12px var(--body);padding:2px 8px;border-radius:4px;border:1px solid var(--line)}
+.grade.ctt{border-color:var(--warn);color:var(--warn)}
+.price{margin-left:auto;font:500 18px var(--mono)}
+.status{display:flex;align-items:center;gap:10px}
+.chip{font:600 12px var(--body);padding:3px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.chip.AT{background:var(--heat);border-color:var(--heat);color:#fff}
+.chip.NEAR{border-color:var(--heat);color:var(--heat)}
+.chip.INVALID{background:var(--muted);color:var(--surface);border-color:var(--muted)}
+.meter{flex:1;height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--heat)}
+.trend{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.tcell{background:var(--sunk);border-radius:6px;padding:6px 8px;display:grid;gap:1px}
+.tcell b{font-size:13px;font-weight:600}
+.tcell b.Bullish{color:var(--buy)} .tcell b.Bearish{color:var(--sell)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.wait{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);padding-top:8px}
+.wait b{color:var(--fg)}
+.side-col{display:grid;gap:14px}
+.list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.list li{font-size:13px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.list li:last-child{border-bottom:0;padding-bottom:0}
+.empty{color:var(--muted);font-size:13px}
+.check label{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:4px 0;cursor:pointer}
+.check input{margin-top:3px;accent-color:var(--teal)}
+.calc{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.calc label{display:grid;gap:3px;font-size:12px;color:var(--muted)}
+.calc input,.calc select{font:500 14px var(--mono);padding:7px 8px;border-radius:6px;border:1px solid var(--line);background:var(--sunk);color:var(--fg);width:100%;min-width:0}
+.calc .out{grid-column:1/-1;background:var(--sunk);border-radius:8px;padding:10px;display:grid;gap:2px}
+.calc .out .m{font-size:22px}
+button.reset{font:500 12px var(--body);background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;margin-top:6px}
+:focus-visible{outline:2px solid var(--heat);outline-offset:2px}
+.foot{color:var(--muted);font-size:12px;text-align:center}
+.str{display:grid;gap:4px}
+.srow{display:grid;grid-template-columns:38px 1fr 54px;align-items:center;gap:8px;font-size:13px}
+.srow b{font-weight:600}
+.strack{position:relative;height:8px;background:var(--sunk);border-radius:4px}
+.strack i{position:absolute;top:0;height:100%;border-radius:4px}
+.strack i.up{left:50%;background:var(--buy)} .strack i.dn{right:50%;background:var(--sell)}
+.strack::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--line)}
+.srow .m{text-align:right;font-size:12px}
+</style>
+
+<header>
+  <div class="hwrap">
+    <h1>Matt's Trading Desk</h1>
+    <span class="clock" id="clock">--:--:--</span>
+    <span class="pill" id="sessPill">Market closed</span>
+    <span class="fresh" id="fresh">Waiting for market data</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panel" aria-label="Trading sessions">
+    <div class="lab">Trading sessions today · Colombia time · darker orange = more volume</div>
+    <div style="overflow-x:auto"><div style="min-width:640px">
+      <div class="strip" id="heat"></div>
+      <div class="bars" id="bars"><div class="nowline" id="nowline"></div></div>
+      <div class="ticks" id="ticks"></div>
+    </div></div>
+    <div class="sessrow" id="sessrow"></div>
+  </section>
+
+  <section class="watch" id="watch" aria-label="Watch first">
+    <div class="lab">Watch first</div>
+    <p id="watchText">Loading your pairs.</p>
+  </section>
+
+  <div class="main">
+    <section aria-label="Pairs this week">
+      <h2 id="weekTitle">Pairs this week</h2>
+      <div class="cards" id="cards"><div class="panel empty">Market data will appear here after the agent's next hourly update. It runs at 3 minutes past every hour.</div></div>
+    </section>
+
+    <aside class="side-col">
+      <section class="panel">
+        <h2>Entry signals right now</h2>
+        <ul class="list" id="signals"><li class="empty">No entry pattern at your zones on the last closed 1-hour or 4-hour candle.</li></ul>
+      </section>
+      <section class="panel">
+        <h2>Currency strength</h2>
+        <div class="lab" style="margin-bottom:6px">This week · strongest to weakest · pair strong against weak</div>
+        <div id="strWeek" class="str"><span class="empty">Loads with the next hourly update.</span></div>
+        <div class="lab" style="margin:10px 0 6px">Today</div>
+        <div id="strDay" class="str"></div>
+      </section>
+      <section class="panel">
+        <h2>Off-list ideas</h2>
+        <div class="lab" style="margin-bottom:6px">Not your setups · Weekly and Daily agree · zone with 3+ touches</div>
+        <ul class="list" id="ideas"><li class="empty">No clean off-list setups near price right now.</li></ul>
+      </section>
+      <section class="panel">
+        <h2>Your risk rules</h2>
+        <dl class="kv" id="rules"><dt>Loading</dt><dd>-</dd></dl>
+      </section>
+      <section class="panel">
+        <h2>Open trades</h2>
+        <ul class="list" id="trades"><li class="empty">No open trades logged. Log trades in #trade-log on Discord.</li></ul>
+      </section>
+      <section class="panel">
+        <h2>News next 48 hours</h2>
+        <ul class="list" id="news"><li class="empty">No high or medium impact news for your currencies.</li></ul>
+      </section>
+      <section class="panel check">
+        <h2>Before you enter</h2>
+        <label><input type="checkbox" id="c1"> Weekly and Daily trend agree with the trade direction</label>
+        <label><input type="checkbox" id="c2"> Price is at your zone (3+ touches, respected over time)</label>
+        <label><input type="checkbox" id="c3"> Entry pattern closed on the 1-hour or 4-hour candle (4-hour for counter-trend)</label>
+        <label><input type="checkbox" id="c4"> No high-impact news on either currency in the next 2 hours</label>
+        <label><input type="checkbox" id="c5"> Stop loss sits beyond the zone, not inside it</label>
+        <label><input type="checkbox" id="c6"> Lot size matches your risk (half risk for counter-trend)</label>
+        <label><input type="checkbox" id="c7"> London or New York session is open</label>
+        <button class="reset" id="resetChecks" type="button">Clear checklist</button>
+      </section>
+      <section class="panel">
+        <h2>Lot size calculator</h2>
+        <div class="calc">
+          <label>Pair<select id="cPair"></select></label>
+          <label>Balance (USD)<input id="cBal" type="number" inputmode="decimal" placeholder="e.g. 2500"></label>
+          <label>Risk %<input id="cRisk" type="number" inputmode="decimal" step="0.1" placeholder="e.g. 1"></label>
+          <label>Stop loss (pips)<input id="cPips" type="number" inputmode="decimal" placeholder="e.g. 35"></label>
+          <div class="out"><span class="lab">Lot size</span><span class="m" id="cOut">-</span><span class="empty" id="cNote">Enter balance, risk % and stop loss distance.</span></div>
+        </div>
+      </section>
+    </aside>
+  </div>
+  <p class="foot">Prices: OANDA, refreshed every 15 minutes. Trend: market structure on closed candles. Your call on every trade — not financial advice.</p>
+</div>
+
+<dialog id="chartDlg" aria-label="Pair chart">
+  <div class="dhead"><h3 id="dTitle">Chart</h3><span class="m" id="dSub"></span>
+    <div class="tabs" role="tablist"><button class="tab" role="tab" id="tPlan" aria-selected="true">4-hour plan</button><button class="tab" role="tab" id="tLive" aria-selected="false">Live chart</button></div>
+    <a class="cbtn ghost" id="dTv" target="_blank" rel="noopener">Open on TradingView</a>
+    <button class="xbtn" id="dClose" aria-label="Close">✕</button></div>
+  <div id="chartBox"></div>
+  <div class="legend" id="dLegend"></div>
+</dialog>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const COT = "America/Bogota";
+  let snap = null;
+
+  // ---------- clock + sessions (always live, from the viewer's clock) ----------
+  const fmtCot = (d, opt) => new Intl.DateTimeFormat("en-GB", { timeZone: COT, ...opt }).format(d);
+  function zoneHour(d, tz) { const p = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(d); return +p.find(x => x.type === "hour").value + (+p.find(x => x.type === "minute").value) / 60; }
+  // session windows in Colombia hours, derived from the cities' own clocks (handles daylight saving automatically)
+  function sessions(d) {
+    const cot = zoneHour(d, COT);
+    const off = tz => { let x = zoneHour(d, tz) - cot; if (x > 12) x -= 24; if (x < -12) x += 24; return x; };
+    const conv = (tz, a, b) => [((a - off(tz)) % 24 + 24) % 24, ((b - off(tz)) % 24 + 24) % 24];
+    return { Sydney: conv("Australia/Sydney", 8, 17), Tokyo: conv("Asia/Tokyo", 9, 18), London: conv("Europe/London", 8, 17), "New York": conv("America/New_York", 8, 17) };
+  }
+  const inWin = ([a, b], h) => a < b ? h >= a && h < b : h >= a || h < b;
+  const hh = h => String(Math.floor(h) % 24).padStart(2, "0") + ":" + String(Math.round((h % 1) * 60)).padStart(2, "0");
+  const AX = 16; const pos = h => ((h - AX + 24) % 24) / 24 * 100;
+
+  function drawStrip() {
+    const now = new Date(), S = sessions(now);
+    let heat = "";
+    for (let i = 0; i < 24; i++) {
+      const h = (AX + i) % 24; let v = 0;
+      if (inWin(S.Sydney, h)) v += .12; if (inWin(S.Tokyo, h)) v += .28; if (inWin(S.London, h)) v += .45; if (inWin(S["New York"], h)) v += .38;
+      if (Math.floor(S.London[0]) === h) v += .15;
+      if (inWin(S.London, h) && inWin(S["New York"], h) && ((h - S["New York"][0] + 24) % 24) < 3) v += .2;
+      v = Math.min(1, v / 1.05);
+      heat += `<div title="${hh(h)} Colombia time" style="background:color-mix(in srgb, var(--heat) ${Math.round(8 + v * 88)}%, var(--surface))"></div>`;
+    }
+    $("heat").innerHTML = heat;
+    let bars = "", row = 0;
+    for (const [name, [a, b]] of Object.entries(S)) {
+      const s = pos(a), e = pos(b) || 100, top = row++ * 16;
+      const label = `${name} ${hh(a)}–${hh(b)}`;
+      bars += e > s ? `<div class="bar" style="top:${top}px;left:${s}%;width:${e - s}%">${label}</div>`
+                    : `<div class="bar" style="top:${top}px;left:${s}%;width:${100 - s}%">${label}</div><div class="bar" style="top:${top}px;left:0;width:${e}%"></div>`;
+    }
+    $("bars").innerHTML = bars + '<div class="nowline" id="nowline"></div>';
+    $("ticks").innerHTML = Array.from({ length: 13 }, (_, i) => `<span style="left:${i / 12 * 100}%">${hh((AX + i * 2) % 24)}</span>`).join("");
+    const ov = [Math.max(S.London[0], S["New York"][0]), Math.min(S.London[1], S["New York"][1])];
+    $("sessrow").innerHTML = `<span>London (priority 1): <b class="m">${hh(S.London[0])}–${hh(S.London[1])}</b></span><span>New York (priority 2): <b class="m">${hh(S["New York"][0])}–${hh(S["New York"][1])}</b></span><span>Overlap, most volume: <b class="m">${hh(ov[0])}–${hh(ov[1])}</b></span><span id="next"></span>`;
+  }
+
+  function tick() {
+    const now = new Date(), S = sessions(now), h = zoneHour(now, COT);
+    $("clock").textContent = fmtCot(now, { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }) + " Colombia";
+    const dow = fmtCot(now, { weekday: "short" });
+    const weekend = dow === "Sat" || (dow === "Sun" && h < 16) || (dow === "Fri" && h >= 16);
+    const L = inWin(S.London, h), N = inWin(S["New York"], h);
+    const pill = $("sessPill");
+    pill.textContent = weekend ? "Market closed (weekend)" : L && N ? "London + New York overlap" : L ? "London session open" : N ? "New York session open" : inWin(S.Tokyo, h) ? "Tokyo session (not your session)" : "Between sessions";
+    pill.className = "pill" + (!weekend && (L || N) ? " live" : "");
+    const nl = document.getElementById("nowline"); if (nl) nl.style.left = pos(h) + "%";
+    const nextLondon = ((S.London[0] - h) + 24) % 24, nextNY = ((S["New York"][0] - h) + 24) % 24;
+    const nx = document.getElementById("next");
+    if (nx) nx.innerHTML = `London opens in <b class="m">${Math.floor(nextLondon)}h ${Math.round((nextLondon % 1) * 60)}m</b> · New York opens in <b class="m">${Math.floor(nextNY)}h ${Math.round((nextNY % 1) * 60)}m</b>`;
+    if (snap) {
+      const mins = Math.round((Date.now() - Date.parse(snap.updated_utc)) / 60000);
+      $("fresh").textContent = `Market data from ${snap.updated_cot} Colombia time (${mins} min ago)`;
+    }
+  }
+
+  // ---------- market data from the hourly agent ----------
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const statusWord = { "FAR": "Far from zone", "NEAR": "Near the zone", "AT ZONE": "At the zone", "INVALID": "Invalidated" };
+  const gradeTxt = g => String(g).replace(/\s*HR CTT/i, " · counter-trend, high risk");
+  const isCtt = g => /CTT/i.test(g);
+
+  function render() {
+    if (!snap) return;
+    $("weekTitle").textContent = `Pairs this week · levels valid until ${snap.expires || "-"}`;
+    const order = { "AT ZONE": 0, "NEAR": 1, "FAR": 2, "INVALID": 3 };
+    const pairs = [...(snap.pairs || [])].sort((a, b) => order[a.status] - order[b.status] || a.pips_away - b.pips_away);
+    $("cards").innerHTML = pairs.map(p => {
+      const [lo, hi] = p.zone, [en, sl, tp] = p.plan, buy = p.side === "BUY";
+      const pct = p.status === "AT ZONE" ? 100 : p.status === "INVALID" ? 0 : Math.max(4, 100 - Math.min(100, p.pips_away * 1.6));
+      const pats = (p.patterns_now || []).map(x => `${esc(x.pattern)} (${esc(x.tf)})`).join(", ");
+      const need = isCtt(p.grade) ? "a 4-hour entry pattern (counter-trend)" : "a 1-hour or 4-hour entry pattern";
+      return `<article class="card">
+        <div class="ctop"><span class="pair">${esc(p.pair)}</span><span class="side ${p.side}">${buy ? "Buy" : "Sell"}</span>
+          <span class="grade ${isCtt(p.grade) ? "ctt" : ""}">Grade ${esc(gradeTxt(p.grade))}</span><span class="price">${esc(p.price)}</span></div>
+        <div class="status"><span class="chip ${p.status.split(" ")[0]}">${statusWord[p.status] || esc(p.status)}</span>
+          <div class="meter" title="How close price is to the zone"><i style="width:${pct}%"></i></div>
+          <span class="m">${p.status === "AT ZONE" ? "in zone" : esc(p.pips_away) + " pips"}</span></div>
+        <div class="trend">${["weekly", "daily", "h4"].map((k, i) => `<div class="tcell"><span class="lab">${["Weekly", "Daily", "4-hour"][i]}</span><b class="${esc(p.trend?.[k])}">${esc(p.trend?.[k] || "-")}</b></div>`).join("")}</div>
+        <dl class="kv"><dt>Zone</dt><dd>${lo} – ${hi}</dd><dt>Your entry</dt><dd>${en}</dd><dt>Stop loss</dt><dd>${sl}</dd><dt>Take profit</dt><dd>${tp}</dd>
+          <dt>Setup invalid if price closes ${esc(p.invalid?.side)}</dt><dd>${esc(p.invalid?.level)}</dd></dl>
+        <div class="wait">${pats ? `<b>Pattern on the last closed candle:</b> ${pats}` : `<b>Waiting for:</b> price ${p.status === "AT ZONE" ? "to react in the zone, then " : "to reach the zone, then "}${need}.`}</div>
+        <div class="cbtns"><button type="button" class="cbtn" data-k="${esc(p.pair)}|${esc(p.side)}">4-hour chart with your levels</button>
+          <a class="cbtn ghost" href="https://www.tradingview.com/symbols/OANDA-${esc(p.pair)}/" target="_blank" rel="noopener">Open on TradingView</a></div>
+      </article>`;
+    }).join("") || '<div class="panel empty">No setups loaded for this week. Post your Sunday screenshots in #ask-claude.</div>';
+
+    const close = pairs.filter(p => p.status === "AT ZONE" || p.status === "NEAR").slice(0, 2);
+    $("watchText").textContent = snap.watch_first || (close.length ? close.map(p => `${p.pair} ${p.side === "BUY" ? "buy" : "sell"} — ${statusWord[p.status].toLowerCase()}${p.status === "NEAR" ? `, ${p.pips_away} pips away` : ""}`).join(" · ") : "Nothing near a zone right now. Next check at 3 minutes past the hour.");
+
+    const sig = snap.signals || [];
+    $("signals").innerHTML = sig.length ? sig.map(s => `<li><b>${esc(s.pair)} ${s.side === "BUY" ? "buy" : "sell"}</b> — ${esc(s.pattern)} on the ${s.tf === "1H" ? "1-hour" : "4-hour"} candle (closed ${esc(s.candle_close_cot)})<br><span class="m">Entry about ${esc(s.entry_now)} · stop loss ${esc(s.stop)} (${esc(s.stop_pips)} pips) · 1x/2x/3x risk ${esc((s.r_levels || []).join(" / "))}</span></li>`).join("")
+      : '<li class="empty">No entry pattern at your zones on the last closed 1-hour or 4-hour candle.</li>';
+    const tr = snap.open_trades || [];
+    $("trades").innerHTML = tr.length ? tr.map(t => `<li>${esc(typeof t === "string" ? t : t.text || JSON.stringify(t))}</li>`).join("") : '<li class="empty">No open trades logged. Log trades in #trade-log on Discord.</li>';
+    const nw = snap.news || [];
+    $("news").innerHTML = nw.length ? nw.map(n => `<li>${esc(n).replace(" COT", " Colombia time").replace(/ High:/, ' <b style="color:var(--sell)">High impact:</b>').replace(/ Medium:/, " Medium impact:").replace(/\(f /, "(forecast ").replace(/, p /, ", previous ")}</li>`).join("") : '<li class="empty">No high or medium impact news for your currencies.</li>';
+
+    const strRows = list => { const mx = Math.max(0.01, ...list.map(x => Math.abs(x[1]))); return list.map(([c, v]) => `<div class="srow"><b>${esc(c)}</b><div class="strack"><i class="${v >= 0 ? "up" : "dn"}" style="width:${Math.abs(v) / mx * 50}%"></i></div><span class="m">${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}%</span></div>`).join(""); };
+    if (snap.strength) { $("strWeek").innerHTML = strRows(snap.strength.this_week || []); $("strDay").innerHTML = strRows(snap.strength.today || []); }
+    const ideas = snap.ideas || [];
+    $("ideas").innerHTML = ideas.length ? ideas.map(i => `<li><b>${esc(i.pair)} ${i.side === "BUY" ? "buy" : "sell"}</b> — ${esc(i.trend)}<br><span class="m">Zone ${esc(i.zone?.[0])} – ${esc(i.zone?.[1])} · ${esc(i.touches_4h)} touches on the 4-hour · ${esc(i.pips_away)} pips away</span></li>`).join("") : '<li class="empty">No clean off-list setups near price right now.</li>';
+    const rk = snap.risk || {}, ru = snap.rules || {};
+    $("rules").innerHTML = `<dt>Balance</dt><dd>private: use the calculator</dd><dt>Risk per trade</dt><dd>${rk.pct_a != null ? esc(rk.pct_a) + "%" : "not set"}</dd><dt>Counter-trend risk</dt><dd>${rk.pct_ctt != null ? esc(rk.pct_ctt) + "%" : "half"}</dd><dt>Most open trades</dt><dd>${esc(ru.max_open ?? "-")}</dd><dt>Most trades per currency</dt><dd>${esc(ru.max_same_ccy ?? "-")}</dd><dt>Daily loss limit</dt><dd>${ru.daily_loss_limit_pct != null ? esc(ru.daily_loss_limit_pct) + "% of balance" : "-"}</dd><dt>No entries before high-impact news</dt><dd>${esc(ru.news_block_hours ?? 2)} hours</dd>`;
+    const sel = $("cPair"), cur = sel.value;
+    sel.innerHTML = pairs.map(p => `<option>${esc(p.pair)}</option>`).join("");
+    if (cur) sel.value = cur;
+    calc();
+    tick();
+  }
+
+  // ---------- lot size calculator (same formula as the Myfxbook calculator, USD account) ----------
+  function pipValueUsd(pair) {
+    const r = snap?.rates || {}, q = pair.slice(3);
+    if (q === "USD") return 10;
+    if (q === "JPY" && r.USDJPY) return 1000 / r.USDJPY;
+    if (r["USD" + q]) return 10 / r["USD" + q];
+    return null;
+  }
+  function calc() {
+    const pair = $("cPair").value, bal = +$("cBal").value, risk = +$("cRisk").value, pips = +$("cPips").value;
+    if (!pair || !bal || !risk || !pips) { $("cOut").textContent = "-"; $("cNote").textContent = "Enter balance, risk % and stop loss distance."; return; }
+    const pv = pipValueUsd(pair);
+    if (!pv) { $("cOut").textContent = "-"; $("cNote").textContent = "Exchange rate not loaded yet."; return; }
+    const lots = bal * risk / 100 / (pips * pv);
+    $("cOut").textContent = lots.toFixed(2) + " lots";
+    $("cNote").textContent = `Risking $${(bal * risk / 100).toFixed(2)} · pip value $${pv.toFixed(2)} per standard lot. Counter-trend: use half.`;
+  }
+  ["cPair", "cBal", "cRisk", "cPips"].forEach(id => $(id).addEventListener("input", () => { calc(); try { if (id !== "cPips") localStorage.setItem(id, $(id).value); } catch (e) {} }));
+  try { ["cBal", "cRisk"].forEach(id => { const v = localStorage.getItem(id); if (v) $(id).value = v; }); } catch (e) {}
+
+  // ---------- checklist (per viewer, resets each day) ----------
+  const today = () => fmtCot(new Date(), { year: "numeric", month: "2-digit", day: "2-digit" });
+  const boxes = [...document.querySelectorAll('.check input[type="checkbox"]')];
+  try { const s = JSON.parse(localStorage.getItem("checks") || "{}"); if (s.day === today()) boxes.forEach(b => b.checked = !!s[b.id]); } catch (e) {}
+  const saveChecks = () => { try { const s = { day: today() }; boxes.forEach(b => s[b.id] = b.checked); localStorage.setItem("checks", JSON.stringify(s)); } catch (e) {} };
+  boxes.forEach(b => b.addEventListener("change", saveChecks));
+  $("resetChecks").addEventListener("click", () => { boxes.forEach(b => b.checked = false); saveChecks(); });
+
+  drawStrip(); tick();
+  setInterval(tick, 1000);
+  setInterval(drawStrip, 10 * 60 * 1000);
+
+  // ---------- charts: 4-hour plan (TradingView Lightweight Charts) + live TradingView chart ----------
+  let chartObj = null, cur = null;
+  const loadScript = src => new Promise((ok, bad) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); });
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const dark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+  const dps = pair => pair === "XAUUSD" ? 2 : /JPY/.test(pair) ? 3 : 5;
+  const tvSym = pair => "OANDA:" + pair;
+  function clearBox() { if (chartObj) { chartObj.remove(); chartObj = null; } $("chartBox").innerHTML = ""; }
+  async function drawPlan() {
+    clearBox(); const p = cur; const bars = (snap.chart4h || {})[p.pair] || [];
+    if (!bars.length) { $("chartBox").innerHTML = '<p class="empty" style="padding:16px">Chart data arrives with the next 15-minute update.</p>'; return; }
+    try { await loadScript("https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"); }
+    catch (e) { $("chartBox").innerHTML = '<p class="empty" style="padding:16px">Chart library could not load. Check your connection.</p>'; return; }
+    const box = $("chartBox"), off = -5 * 3600, step = 4 * 3600, d = dps(p.pair);
+    box.style.position = "relative";
+    chartObj = LightweightCharts.createChart(box, { autoSize: true,
+      layout: { background: { color: css("--surface") }, textColor: css("--muted"), fontFamily: "IBM Plex Mono, monospace" },
+      grid: { vertLines: { visible: false }, horzLines: { color: css("--line") } },
+      rightPriceScale: { borderColor: css("--line"), scaleMargins: { top: 0.08, bottom: 0.08 } }, timeScale: { borderColor: css("--line"), timeVisible: true, rightOffset: 2 },
+      localization: { priceFormatter: x => x.toFixed(d) } });
+    const s = chartObj.addCandlestickSeries({ upColor: css("--buy"), downColor: css("--sell"), borderVisible: false, wickUpColor: css("--buy"), wickDownColor: css("--sell"),
+      priceFormat: { type: "price", precision: d, minMove: Math.pow(10, -d) } });
+    const data = bars.map(b => ({ time: b[0] + off, open: b[1], high: b[2], low: b[3], close: b[4] }));
+    const t0 = data[data.length - 1].time, fut = n => t0 + n * step;
+    s.setData([...data, ...Array.from({ length: 14 }, (_, i) => ({ time: fut(i + 1) }))]);  // empty space on the right for the plan
+    const [lo, hi] = p.zone, [en, sl, tp] = p.plan, buy = p.side === "BUY", last = data[data.length - 1].close;
+    // projected path: price to your entry, reaction, then toward take profit
+    const swingBack = en + (sl - en) * 0.45, mid = en + (tp - en) * 0.4;
+    const path = chartObj.addLineSeries({ color: "#2f80ed", lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    path.setData([{ time: t0, value: last }, { time: fut(3), value: en }, { time: fut(6), value: mid }, { time: fut(8), value: swingBack }, { time: fut(13), value: tp }]);
+    s.createPriceLine({ price: +en, title: "Entry", color: "#2f80ed", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true });
+    s.createPriceLine({ price: +sl, title: "Stop loss", color: css("--sell"), lineWidth: 1, axisLabelVisible: true });
+    s.createPriceLine({ price: +tp, title: "Take profit", color: css("--buy"), lineWidth: 1, axisLabelVisible: true });
+    if (p.invalid?.level != null) s.createPriceLine({ price: +p.invalid.level, title: "Invalid", color: css("--muted"), lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false });
+    // overlay: shaded zones + stop loss / take profit box (redrawn as you scroll or zoom)
+    const ov = document.createElement("div"); ov.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2"; box.appendChild(ov);
+    const sug = (snap.zones4h || {})[p.pair] || [];
+    const rects = [{ lo, hi, bg: "rgba(217,87,43,.20)", bd: css("--heat"), label: "Your zone" },
+      ...sug.map(z => ({ lo: z[0], hi: z[1], bg: "rgba(44,90,96,.16)", bd: "rgba(90,150,158,.75)", label: `4-hour zone · ${z[2]} touches` }))];
+    const draw = () => {
+      if (!chartObj) return;
+      const W = box.clientWidth - chartObj.priceScale("right").width(), ts = chartObj.timeScale();
+      const y = v => s.priceToCoordinate(+v), x = t => ts.timeToCoordinate(t);
+      let html = "";
+      rects.forEach(r => { const a = y(r.hi), b = y(r.lo); if (a == null || b == null) return;
+        html += `<div style="position:absolute;left:0;width:${W}px;top:${Math.min(a, b)}px;height:${Math.max(2, Math.abs(b - a))}px;background:${r.bg};border-top:1px solid ${r.bd};border-bottom:1px solid ${r.bd}"><span style="position:absolute;left:6px;top:2px;font:600 11px var(--body);color:${r.bd}">${r.label}</span></div>`; });
+      const xa = x(fut(1)), xb = x(fut(12)), ye = y(en), ys = y(sl), yt = y(tp);
+      if (xa != null && xb != null && ye != null) {
+        const w = Math.max(10, Math.min(xb, W) - xa);
+        if (ys != null) html += `<div style="position:absolute;left:${xa}px;width:${w}px;top:${Math.min(ye, ys)}px;height:${Math.abs(ys - ye)}px;background:rgba(178,58,42,.28);border:1px solid rgba(178,58,42,.6)"></div>`;
+        if (yt != null) html += `<div style="position:absolute;left:${xa}px;width:${w}px;top:${Math.min(ye, yt)}px;height:${Math.abs(yt - ye)}px;background:rgba(31,122,82,.24);border:1px solid rgba(31,122,82,.6)"></div>`;
+      }
+      ov.innerHTML = html;
+      if (chartObj) requestAnimationFrame(draw);
+    };
+    chartObj.timeScale().setVisibleLogicalRange({ from: Math.max(0, data.length - 70), to: data.length + 14 });
+    requestAnimationFrame(draw);
+    const rr = Math.abs(tp - en) / Math.abs(en - sl);
+    $("dLegend").innerHTML = `<span><i style="background:${css("--heat")}"></i>Your zone <b class="m">${lo} – ${hi}</b></span>` +
+      `<span><i style="background:#2f80ed"></i>Entry <b class="m">${en}</b></span><span><i style="background:${css("--sell")}"></i>Stop loss <b class="m">${sl}</b></span>` +
+      `<span><i style="background:${css("--buy")}"></i>Take profit <b class="m">${tp}</b> (${rr.toFixed(1)}x your risk)</span>` +
+      (sug.length ? `<span><i style="background:rgba(44,90,96,.7)"></i>Other 4-hour zones (3+ touches): ${sug.map(z => `<b class="m">${z[0]}–${z[1]}</b>`).join(", ")}</span>` : "") +
+      `<span>Blue line = expected path if the setup plays out, not a forecast. 4-hour OANDA candles from TradingView, Colombia time, refreshed every 15 minutes.</span>`;
+  }
+  async function drawLive() {
+    clearBox(); const p = cur; const id = "tvlive"; $("chartBox").innerHTML = `<div id="${id}" style="height:100%"></div>`;
+    $("dLegend").innerHTML = "<span>Live TradingView chart (OANDA price, real time). Your levels are on the 4-hour plan tab; drawings aren't possible on this free chart, and it is separate from your TradingView account.</span>";
+    try { await loadScript("https://s3.tradingview.com/tv.js"); } catch (e) { $(id).innerHTML = '<p class="empty" style="padding:16px">TradingView could not load.</p>'; return; }
+    new TradingView.widget({ container_id: id, autosize: true, symbol: tvSym(p.pair), interval: "240", timezone: "America/Bogota", theme: dark() ? "dark" : "light",
+      style: "1", locale: "en", allow_symbol_change: false, hide_side_toolbar: true, save_image: false, withdateranges: true });
+  }
+  function setTab(live) { $("tPlan").setAttribute("aria-selected", !live); $("tLive").setAttribute("aria-selected", live); (live ? drawLive : drawPlan)(); }
+  $("cards").addEventListener("click", e => {
+    const b = e.target.closest("button.cbtn"); if (!b || !snap) return;
+    const [pair, side] = b.dataset.k.split("|"); cur = (snap.pairs || []).find(x => x.pair === pair && x.side === side); if (!cur) return;
+    $("dTitle").textContent = `${pair} ${side === "BUY" ? "buy" : "sell"}`; $("dSub").textContent = `Grade ${gradeTxt(cur.grade)} · price ${cur.price}`;
+    $("dTv").href = `https://www.tradingview.com/symbols/OANDA-${pair}/`;
+    $("chartDlg").showModal(); setTab(false);
+  });
+  $("tPlan").addEventListener("click", () => setTab(false)); $("tLive").addEventListener("click", () => setTab(true));
+  $("dClose").addEventListener("click", () => $("chartDlg").close());
+  $("chartDlg").addEventListener("close", () => { clearBox(); cur = null; });
+  $("chartDlg").addEventListener("click", e => { if (e.target === $("chartDlg")) $("chartDlg").close(); });
+
+  async function load() {
+    try {
+      const r = await fetch("snapshot.json?t=" + Date.now(), { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      snap = await r.json(); render();
+    } catch (e) { $("fresh").textContent = "Live data not loaded yet. Retrying..."; }
+  }
+  load(); setInterval(load, 60 * 1000);
+})();
+</script>
