@@ -431,7 +431,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
     $("dLegend").innerHTML = "<span>Live TradingView chart (OANDA price, real time). Your levels are on the 4-hour plan tab; drawings aren't possible on this free chart, and it is separate from your TradingView account.</span>";
     try { await loadScript("https://s3.tradingview.com/tv.js"); } catch (e) { $(id).innerHTML = '<p class="empty" style="padding:16px">TradingView could not load.</p>'; return; }
     new TradingView.widget({ container_id: id, autosize: true, symbol: tvSym(p.pair), interval: "240", timezone: "America/Bogota", theme: dark() ? "dark" : "light",
-      style: "1", locale: "en", allow_symbol_change: false, hide_side_toolbar: true, save_image: false, withdateranges: true });
+      style: "1", locale: ({es:"es",pt:"br"})[window.__tdLang] || "en", allow_symbol_change: false, hide_side_toolbar: true, save_image: false, withdateranges: true });
   }
   function setTab(live) { $("tPlan").setAttribute("aria-selected", !live); $("tLive").setAttribute("aria-selected", live); (live ? drawLive : drawPlan)(); }
   $("cards").addEventListener("click", e => {
@@ -454,5 +454,215 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
     } catch (e) { $("fresh").textContent = "Live data not loaded yet. Retrying..."; }
   }
   load(); setInterval(load, 60 * 1000);
+})();
+</script>
+<script>
+/* ---------- Language switch: English / Español / Português (Brasil) ----------
+   Translates the page after it renders (and every time the hourly data re-renders it).
+   The original English stays in the page code, so nothing else had to change. */
+(() => {
+  // [english, español, português]
+  const PHRASES = [
+    ["Matt's Trading Desk", "Trading Desk de Matt", "Trading Desk do Matt"],
+    ["Trading sessions today · Colombia time · darker orange = more volume", "Sesiones de hoy · hora de Colombia · naranja más oscuro = más volumen", "Sessões de hoje · horário da Colômbia · laranja mais escuro = mais volume"],
+    ["Market data will appear here after the agent's next hourly update. It runs at 3 minutes past every hour.", "Los datos del mercado aparecen aquí después de la próxima actualización del agente. Corre 3 minutos después de cada hora.", "Os dados do mercado aparecem aqui depois da próxima atualização do agente. Roda 3 minutos depois de cada hora."],
+    ["No entry pattern at your zones on the last closed 1-hour or 4-hour candle.", "No hay patrón de entrada en tus zonas en la última vela cerrada de 1 hora o 4 horas.", "Nenhum padrão de entrada nas suas zonas no último candle fechado de 1 hora ou 4 horas."],
+    ["This week · strongest to weakest · pair strong against weak", "Esta semana · de la más fuerte a la más débil · fuerte contra débil", "Esta semana · da mais forte à mais fraca · forte contra fraca"],
+    ["Loads with the next hourly update.", "Carga con la próxima actualización.", "Carrega com a próxima atualização."],
+    ["Not your setups · Weekly and Daily agree · zone with 3+ touches", "No son tus setups · Semanal y Diario de acuerdo · zona con 3+ toques", "Não são seus setups · Semanal e Diário concordam · zona com 3+ toques"],
+    ["No clean off-list setups near price right now.", "No hay setups limpios fuera de la lista cerca del precio ahora.", "Nenhum setup limpo fora da lista perto do preço agora."],
+    ["No open trades logged. Log trades in #trade-log on Discord.", "No hay operaciones abiertas registradas. Regístralas en #trade-log en Discord.", "Nenhum trade aberto registrado. Registre em #trade-log no Discord."],
+    ["No high or medium impact news for your currencies.", "No hay noticias de impacto alto o medio para tus monedas.", "Nenhuma notícia de impacto alto ou médio para as suas moedas."],
+    ["Weekly and Daily trend agree with the trade direction", "La tendencia Semanal y Diaria va en la dirección de la operación", "A tendência Semanal e Diária concorda com a direção do trade"],
+    ["Price is at your zone (3+ touches, respected over time)", "El precio está en tu zona (3+ toques, respetada en el tiempo)", "O preço está na sua zona (3+ toques, respeitada ao longo do tempo)"],
+    ["Entry pattern closed on the 1-hour or 4-hour candle (4-hour for counter-trend)", "Patrón de entrada cerrado en la vela de 1 hora o 4 horas (4 horas si es contra-tendencia)", "Padrão de entrada fechado no candle de 1 hora ou 4 horas (4 horas se for contra a tendência)"],
+    ["No high-impact news on either currency in the next 2 hours", "Sin noticias de alto impacto en ninguna de las dos monedas en las próximas 2 horas", "Sem notícia de alto impacto em nenhuma das duas moedas nas próximas 2 horas"],
+    ["Stop loss sits beyond the zone, not inside it", "El stop loss está más allá de la zona, no adentro", "O stop loss fica além da zona, não dentro dela"],
+    ["Lot size matches your risk (half risk for counter-trend)", "El lotaje coincide con tu riesgo (mitad del riesgo si es contra-tendencia)", "O lote bate com o seu risco (metade do risco se for contra a tendência)"],
+    ["London or New York session is open", "La sesión de Londres o Nueva York está abierta", "A sessão de Londres ou Nova York está aberta"],
+    ["Enter balance, risk % and stop loss distance.", "Pon el saldo, el % de riesgo y la distancia del stop loss.", "Coloque o saldo, o % de risco e a distância do stop loss."],
+    ["Exchange rate not loaded yet.", "El tipo de cambio todavía no cargó.", "O câmbio ainda não carregou."],
+    ["per standard lot. Counter-trend: use half.", "por lote estándar. Contra-tendencia: usa la mitad.", "por lote padrão. Contra a tendência: use a metade."],
+    ["Prices: OANDA, refreshed every 15 minutes. Trend: market structure on closed candles. Your call on every trade — not financial advice.", "Precios: OANDA, actualizados cada 15 minutos. Tendencia: estructura de mercado en velas cerradas. Cada operación es tu decisión — no es asesoría financiera.", "Preços: OANDA, atualizados a cada 15 minutos. Tendência: estrutura de mercado em candles fechados. Cada trade é decisão sua — não é recomendação de investimento."],
+    ["Nothing near a zone right now. Next check at 3 minutes past the hour.", "Nada cerca de una zona ahora. Próxima revisión 3 minutos después de la hora.", "Nada perto de uma zona agora. Próxima checagem 3 minutos depois da hora."],
+    ["No setups loaded for this week. Post your Sunday screenshots in #ask-claude.", "No hay setups cargados esta semana. Publica tus pantallazos del domingo en #ask-claude.", "Nenhum setup carregado nesta semana. Poste seus prints de domingo em #ask-claude."],
+    ["Live data not loaded yet. Retrying...", "Los datos en vivo todavía no cargan. Reintentando...", "Os dados ao vivo ainda não carregaram. Tentando de novo..."],
+    ["Chart data arrives with the next 15-minute update.", "Los datos del gráfico llegan con la próxima actualización de 15 minutos.", "Os dados do gráfico chegam com a próxima atualização de 15 minutos."],
+    ["Chart library could not load. Check your connection.", "No se pudo cargar el gráfico. Revisa tu conexión.", "Não deu para carregar o gráfico. Confira sua conexão."],
+    ["TradingView could not load.", "TradingView no pudo cargar.", "O TradingView não carregou."],
+    ["Blue line = expected path if the setup plays out, not a forecast. 4-hour OANDA candles from TradingView, Colombia time, refreshed every 15 minutes.", "Línea azul = camino esperado si el setup funciona, no es un pronóstico. Velas de 4 horas de OANDA desde TradingView, hora de Colombia, cada 15 minutos.", "Linha azul = caminho esperado se o setup funcionar, não é uma previsão. Candles de 4 horas da OANDA pelo TradingView, horário da Colômbia, a cada 15 minutos."],
+    ["Live TradingView chart (OANDA price, real time). Your levels are on the 4-hour plan tab; drawings aren't possible on this free chart, and it is separate from your TradingView account.", "Gráfico de TradingView en vivo (precio OANDA, tiempo real). Tus niveles están en la pestaña del plan de 4 horas; en este gráfico gratis no se puede dibujar y es aparte de tu cuenta de TradingView.", "Gráfico do TradingView ao vivo (preço OANDA, tempo real). Seus níveis estão na aba do plano de 4 horas; neste gráfico grátis não dá para desenhar e ele é separado da sua conta do TradingView."],
+    ["Other 4-hour zones (3+ touches):", "Otras zonas de 4 horas (3+ toques):", "Outras zonas de 4 horas (3+ toques):"],
+    ["a 4-hour entry pattern (counter-trend)", "un patrón de entrada de 4 horas (contra-tendencia)", "um padrão de entrada de 4 horas (contra a tendência)"],
+    ["a 1-hour or 4-hour entry pattern", "un patrón de entrada de 1 hora o 4 horas", "um padrão de entrada de 1 hora ou 4 horas"],
+    [" price to react in the zone, then ", " que el precio reaccione en la zona, y después ", " o preço reagir na zona, e depois "],
+    [" price to reach the zone, then ", " que el precio llegue a la zona, y después ", " o preço chegar na zona, e depois "],
+    ["Pattern on the last closed candle:", "Patrón en la última vela cerrada:", "Padrão no último candle fechado:"],
+    ["4-hour chart with your levels", "Gráfico de 4 horas con tus niveles", "Gráfico de 4 horas com os seus níveis"],
+    ["counter-trend, high risk", "contra-tendencia, alto riesgo", "contra a tendência, alto risco"],
+    ["Setup invalid if price closes ", "Setup inválido si el precio cierra ", "Setup inválido se o preço fechar "],
+    ["Market closed (weekend)", "Mercado cerrado (fin de semana)", "Mercado fechado (fim de semana)"],
+    ["London + New York overlap", "Londres + Nueva York al mismo tiempo", "Londres + Nova York ao mesmo tempo"],
+    ["London session open", "Sesión de Londres abierta", "Sessão de Londres aberta"],
+    ["New York session open", "Sesión de Nueva York abierta", "Sessão de Nova York aberta"],
+    ["Tokyo session (not your session)", "Sesión de Tokio (no es tu sesión)", "Sessão de Tóquio (não é a sua sessão)"],
+    ["London (priority 1): ", "Londres (prioridad 1): ", "Londres (prioridade 1): "],
+    ["New York (priority 2): ", "Nueva York (prioridad 2): ", "Nova York (prioridade 2): "],
+    ["Overlap, most volume: ", "Cruce, más volumen: ", "Sobreposição, mais volume: "],
+    ["London opens in ", "Londres abre en ", "Londres abre em "],
+    ["New York opens in ", "Nueva York abre en ", "Nova York abre em "],
+    ["Market data from ", "Datos del mercado de las ", "Dados do mercado das "],
+    ["Waiting for market data", "Esperando datos del mercado", "Esperando dados do mercado"],
+    ["Pairs this week · levels valid until ", "Pares de esta semana · niveles válidos hasta ", "Pares desta semana · níveis válidos até "],
+    ["private: use the calculator", "privado: usa la calculadora", "privado: use a calculadora"],
+    ["No entries before high-impact news", "Sin entradas antes de noticias de alto impacto", "Sem entradas antes de notícia de alto impacto"],
+    ["Most trades per currency", "Máximo de operaciones por moneda", "Máximo de trades por moeda"],
+    ["Most open trades", "Máximo de operaciones abiertas", "Máximo de trades abertos"],
+    ["Counter-trend risk", "Riesgo en contra-tendencia", "Risco contra a tendência"],
+    ["Daily loss limit", "Límite de pérdida diaria", "Limite de perda diária"],
+    ["% of balance", "% del saldo", "% do saldo"],
+    ["Risk per trade", "Riesgo por operación", "Risco por trade"],
+    ["Entry signals right now", "Señales de entrada ahora", "Sinais de entrada agora"],
+    ["Currency strength", "Fuerza de las monedas", "Força das moedas"],
+    ["Off-list ideas", "Ideas fuera de la lista", "Ideias fora da lista"],
+    ["Your risk rules", "Tus reglas de riesgo", "Suas regras de risco"],
+    ["Open trades", "Operaciones abiertas", "Trades abertos"],
+    ["News next 48 hours", "Noticias próximas 48 horas", "Notícias nas próximas 48 horas"],
+    ["Before you enter", "Antes de entrar", "Antes de entrar"],
+    ["Lot size calculator", "Calculadora de lotaje", "Calculadora de lote"],
+    ["Clear checklist", "Limpiar checklist", "Limpar checklist"],
+    ["Pairs this week", "Pares de esta semana", "Pares desta semana"],
+    ["Watch first", "Mira primero", "Olhe primeiro"],
+    ["Loading your pairs.", "Cargando tus pares.", "Carregando seus pares."],
+    ["Balance (USD)", "Saldo (USD)", "Saldo (USD)"],
+    ["Stop loss (pips)", "Stop loss (pips)", "Stop loss (pips)"],
+    ["Open on TradingView", "Abrir en TradingView", "Abrir no TradingView"],
+    ["4-hour plan", "Plan de 4 horas", "Plano de 4 horas"],
+    ["Live chart", "Gráfico en vivo", "Gráfico ao vivo"],
+    ["Between sessions", "Entre sesiones", "Entre sessões"],
+    ["Market closed", "Mercado cerrado", "Mercado fechado"],
+    ["Far from zone", "Lejos de la zona", "Longe da zona"],
+    ["Near the zone", "Cerca de la zona", "Perto da zona"],
+    ["At the zone", "En la zona", "Na zona"],
+    ["near the zone", "cerca de la zona", "perto da zona"],
+    ["at the zone", "en la zona", "na zona"],
+    ["Invalidated", "Invalidado", "Invalidado"],
+    ["Waiting for:", "Esperando:", "Esperando:"],
+    ["Your entry", "Tu entrada", "Sua entrada"],
+    ["Your zone", "Tu zona", "Sua zona"],
+    ["x your risk", "x tu riesgo", "x o seu risco"],
+    ["1x/2x/3x risk ", "1x/2x/3x riesgo ", "1x/2x/3x risco "],
+    ["Entry about ", "Entrada cerca de ", "Entrada perto de "],
+    [" touches on the 4-hour", " toques en 4 horas", " toques no 4 horas"],
+    ["4-hour zone · ", "Zona de 4 horas · ", "Zona de 4 horas · "],
+    [" pips away", " pips de distancia", " pips de distância"],
+    ["High impact:", "Alto impacto:", "Alto impacto:"],
+    ["Medium impact:", "Impacto medio:", "Impacto médio:"],
+    ["(forecast ", "(pronóstico ", "(previsão "],
+    [", previous ", ", anterior ", ", anterior "],
+    ["Colombia time", "hora de Colombia", "horário da Colômbia"],
+    [" on the 1-hour candle", " en la vela de 1 hora", " no candle de 1 hora"],
+    [" on the 4-hour candle", " en la vela de 4 horas", " no candle de 4 horas"],
+    ["(closed ", "(cerró ", "(fechou "],
+    ["Risking $", "Arriesgas $", "Arriscando $"],
+    ["pip value $", "valor del pip $", "valor do pip $"],
+    [" · price ", " · precio ", " · preço "],
+    ["Grade ", "Grado ", "Nota "],
+    ["Setup invalid if price closes above", "Setup inválido si el precio cierra arriba de", "Setup inválido se o preço fechar acima de"],
+    ["Setup invalid if price closes below", "Setup inválido si el precio cierra debajo de", "Setup inválido se o preço fechar abaixo de"],
+    [" sell is at the zone (", " venta está en la zona (", " venda está na zona ("],
+    [" buy is at the zone (", " compra está en la zona (", " compra está na zona ("],
+    [" sell is near the zone (", " venta está cerca de la zona (", " venda está perto da zona ("],
+    [" buy is near the zone (", " compra está cerca de la zona (", " compra está perto da zona ("],
+    ["waiting for a bearish 1-hour entry pattern", "esperando un patrón de entrada bajista de 1 hora", "esperando um padrão de entrada de baixa de 1 hora"],
+    ["waiting for a bearish 4-hour entry pattern", "esperando un patrón de entrada bajista de 4 horas", "esperando um padrão de entrada de baixa de 4 horas"],
+    ["waiting for a bullish 1-hour entry pattern", "esperando un patrón de entrada alcista de 1 hora", "esperando um padrão de entrada de alta de 1 hora"],
+    ["waiting for a bullish 4-hour entry pattern", "esperando un patrón de entrada alcista de 4 horas", "esperando um padrão de entrada de alta de 4 horas"],
+    ["Weekly Bullish", "Semanal alcista", "Semanal de alta"], ["Weekly Bearish", "Semanal bajista", "Semanal de baixa"], ["Weekly Ranging", "Semanal lateral", "Semanal lateral"],
+    ["Daily Bullish", "Diario alcista", "Diário de alta"], ["Daily Bearish", "Diario bajista", "Diário de baixa"], ["Daily Ranging", "Diario lateral", "Diário lateral"],
+  ];
+  // whole text only (short words that would be wrong inside longer text)
+  const EXACT = {
+    "Weekly": ["Semanal", "Semanal"], "Daily": ["Diario", "Diário"], "4-hour": ["4 horas", "4 horas"], "Today": ["Hoy", "Hoje"],
+    "Buy": ["Compra", "Compra"], "Sell": ["Venta", "Venda"], "Zone": ["Zona", "Zona"], "Entry": ["Entrada", "Entrada"],
+    "Pair": ["Par", "Par"], "Lot size": ["Lotaje", "Lote"], "Balance": ["Saldo", "Saldo"], "Risk %": ["Riesgo %", "Risco %"],
+    "half": ["la mitad", "metade"], "not set": ["sin definir", "não definido"], "in zone": ["en la zona", "na zona"],
+    "Loading": ["Cargando", "Carregando"], "Chart": ["Gráfico", "Gráfico"], "Invalid": ["Inválido", "Inválido"],
+    "Bullish": ["Alcista", "Alta"], "Bearish": ["Bajista", "Baixa"], "Ranging": ["Lateral", "Lateral"], "BULLISH": ["ALCISTA", "ALTA"], "BEARISH": ["BAJISTA", "BAIXA"], "RANGE": ["LATERAL", "LATERAL"],
+    "above": ["arriba de", "acima de"], "below": ["debajo de", "abaixo de"],
+  };
+  const REGEX = [
+    [/ lots$/, [" lotes", " lotes"]],
+    [/ hours$/, [" horas", " horas"]],
+    [/\((\d+) min ago\)/, ["(hace $1 min)", "(há $1 min)"]],
+    [/ Colombia$/, [" Colombia", " Colômbia"]],
+    [/^([A-Z0-9]{6}) buy$/, ["$1 compra", "$1 compra"]], [/^([A-Z0-9]{6}) sell$/, ["$1 venta", "$1 venda"]],
+    [/^([A-Z0-9]{6}) buy — /, ["$1 compra — ", "$1 compra — "]], [/^([A-Z0-9]{6}) sell — /, ["$1 venta — ", "$1 venda — "]],
+    [/ buy — /g, [" compra — ", " compra — "]], [/ sell — /g, [" venta — ", " venda — "]],
+    [/\bSydney\b/g, ["Sídney", "Sydney"]], [/\bTokyo\b/g, ["Tokio", "Tóquio"]], [/\bLondon\b/g, ["Londres", "Londres"]], [/\bNew York\b/g, ["Nueva York", "Nova York"]],
+    [/^e\.g\. /, ["ej. ", "ex. "]],
+    [/^Zone /, ["Zona ", "Zona "]],
+    [/(\d) touches$/, ["$1 toques", "$1 toques"]],
+    [/\(([\d.]+) to ([\d.]+)\)/g, ["($1 a $2)", "($1 a $2)"]],
+    [/\bMon\b/, ["lun", "seg"]], [/\bTue\b/, ["mar", "ter"]], [/\bWed\b/, ["mié", "qua"]], [/\bThu\b/, ["jue", "qui"]], [/\bFri\b/, ["vie", "sex"]], [/\bSat\b/, ["sáb", "sáb"]], [/\bSun\b/, ["dom", "dom"]],
+    [/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/, ["$2 $1", "$2 $1"]],
+    [/\bJan\b/, ["ene", "jan"]], [/\bApr\b/, ["abr", "abr"]], [/\bMay\b/, ["may", "mai"]], [/\bAug\b/, ["ago", "ago"]], [/\bSep\b/, ["sep", "set"]], [/\bOct\b/, ["oct", "out"]], [/\bDec\b/, ["dic", "dez"]], [/\bFeb\b/, ["feb", "fev"]], [/\bMar\b(?= )/, ["mar", "mar"]], [/\bJun\b/, ["jun", "jun"]], [/\bJul\b/, ["jul", "jul"]], [/\bNov\b/, ["nov", "nov"]],
+  ];
+  PHRASES.sort((a, b) => b[0].length - a[0].length);
+  const IDX = { es: 0, pt: 1 };
+  const STORE = "tdLang";
+  let lang = "en";
+  try { lang = localStorage.getItem(STORE) || ""; } catch (e) {}
+  if (!lang) { const n = (navigator.language || "en").toLowerCase(); lang = n.startsWith("pt") ? "pt" : n.startsWith("es") ? "es" : "en"; }
+  window.__tdLang = lang;
+
+  function tr(s) {
+    if (lang === "en" || !s || !s.trim()) return s;
+    const i = IDX[lang], t = s.trim();
+    if (EXACT[t]) return s.replace(t, EXACT[t][i]);
+    let out = s;
+    for (const p of PHRASES) if (out.includes(p[0])) out = out.split(p[0]).join(p[i + 1]);
+    for (const [re, rep] of REGEX) out = out.replace(re, rep[i]);
+    return out;
+  }
+  const memo = new WeakMap();      // node -> {src, out}
+  const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "SELECT", "OPTION", "TEXTAREA"]);
+  let busy = false;
+  function apply(root) {
+    busy = true;
+    const w = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.parentElement && (SKIP.has(n.parentElement.tagName) || n.parentElement.closest("#tvlive, .td-lang"))) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    for (let n; (n = w.nextNode());) {
+      let m = memo.get(n);
+      if (!m || n.nodeValue !== m.out) m = { src: n.nodeValue };     // the page changed this text: take the new English
+      m.out = tr(m.src); if (n.nodeValue !== m.out) n.nodeValue = m.out; memo.set(n, m);
+    }
+    document.querySelectorAll("[placeholder],[title],[aria-label]").forEach(el => {
+      ["placeholder", "title"].forEach(a => { if (!el.hasAttribute(a)) return; const k = "data-en-" + a;
+        if (!el.hasAttribute(k) || (el.getAttribute(a) !== el.getAttribute("data-tr-" + a))) el.setAttribute(k, el.getAttribute(a));
+        const v = tr(el.getAttribute(k)); el.setAttribute(a, v); el.setAttribute("data-tr-" + a, v); });
+    });
+    document.title = tr("Matt's Trading Desk");
+    document.documentElement.lang = lang === "pt" ? "pt-BR" : lang;
+    busy = false;
+  }
+
+  // switcher in the header
+  const css = document.createElement("style");
+  css.textContent = `.td-lang{display:inline-flex;gap:3px;margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:3px;background:var(--surface)}
+  .td-lang button{border:0;background:none;color:var(--muted);font:600 12px var(--body,inherit);letter-spacing:.06em;padding:5px 9px;border-radius:6px;cursor:pointer}
+  .td-lang button[aria-pressed="true"]{background:var(--heat);color:#fff}
+  .td-lang button:focus-visible{outline:2px solid var(--teal);outline-offset:1px}`;
+  document.head.appendChild(css);
+  const box = document.createElement("div"); box.className = "td-lang"; box.setAttribute("role", "group"); box.setAttribute("aria-label", "Language");
+  box.innerHTML = '<button data-l="en" lang="en">EN</button><button data-l="es" lang="es">ES</button><button data-l="pt" lang="pt-BR">PT</button>';
+  (document.querySelector("header .hwrap") || document.body).appendChild(box);
+  const mark = () => box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.l === lang));
+  box.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; lang = b.dataset.l; window.__tdLang = lang; try { localStorage.setItem(STORE, lang); } catch (err) {} mark(); apply(); });
+  mark();
+
+  let queued = false;
+  new MutationObserver(() => { if (busy || queued) return; queued = true; requestAnimationFrame(() => { queued = false; apply(); }); })
+    .observe(document.body, { childList: true, subtree: true, characterData: true });
+  apply();
 })();
 </script>
