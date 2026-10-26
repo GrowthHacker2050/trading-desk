@@ -323,14 +323,19 @@ def scan():
 
 
 def trend(b, k):
-    """Market structure on closed candles: a close above the last swing high = bullish, below the last swing low = bearish."""
+    """Market structure on candle BODY CLOSES only (line-chart view, wicks ignored).
+    A swing high/low is a close that stands above/below the k closes on each side.
+    A close above the last swing-high close = bullish, below the last swing-low close = bearish."""
     if len(b) < 2 * k + 3: return "Not enough data"
+    c = [x["c"] for x in b]
     state, last_h, last_l = "Ranging", None, None
-    for i in range(len(b)):
-        if i - k >= k and all(b[i - k]["h"] >= b[i - k + j]["h"] and b[i - k]["h"] >= b[i - k - j]["h"] for j in range(1, k + 1)): last_h = b[i - k]["h"]
-        if i - k >= k and all(b[i - k]["l"] <= b[i - k + j]["l"] and b[i - k]["l"] <= b[i - k - j]["l"] for j in range(1, k + 1)): last_l = b[i - k]["l"]
-        if last_h is not None and b[i]["c"] > last_h: state, last_h = "Bullish", None
-        if last_l is not None and b[i]["c"] < last_l: state, last_l = "Bearish", None
+    for i in range(len(c)):
+        j = i - k
+        if j >= k:
+            if all(c[j] >= c[j + m] and c[j] >= c[j - m] for m in range(1, k + 1)): last_h = c[j]
+            if all(c[j] <= c[j + m] and c[j] <= c[j - m] for m in range(1, k + 1)): last_l = c[j]
+        if last_h is not None and c[i] > last_h: state, last_h = "Bullish", None
+        if last_l is not None and c[i] < last_l: state, last_l = "Bearish", None
     return state
 
 
@@ -345,7 +350,7 @@ def snapshot():
         atr = live([pair])[pair]["atr4"]
         pats = [{"tf": "1-hour", "pattern": p} for p in patterns(h1, side, s[2], s[3], atr)] + [{"tf": "4-hour", "pattern": p} for p in patterns(h4, side, s[2], s[3], atr)]
         pairs.append({**row, "invalid": {"side": s[7], "level": s[8]},
-                      "trend": {"weekly": trend(w1, 2), "daily": trend(d1, 3), "h4": trend(h4, 3)}, "patterns_now": pats})
+                      "trend": {"weekly": trend(w1, 1), "daily": trend(d1, 2), "h4": trend(h4, 2)}, "patterns_now": pats})
     nx = news(ccy, 48, ("High", "Medium"))
     lq = live([])
     rates = {k: lq[k]["price"] for k in ("USDJPY", "USDCAD", "USDCHF", "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD") if k in lq}
@@ -416,7 +421,7 @@ def scout(exclude=()):
     for pair in PAIRS28 + ["XAUUSD"]:
         if pair in exclude or pair not in q: continue
         try:
-            w, dd, h4 = trend(candles(pair, 168, 104), 2), trend(candles(pair, 24, 60), 3), candles(pair, 4, 360)
+            w, dd, h4 = trend(candles(pair, 168, 104), 1), trend(candles(pair, 24, 60), 2), candles(pair, 4, 360)
         except Exception:
             continue
         if w != dd or w not in ("Bullish", "Bearish") or len(h4) < 60: continue
@@ -448,7 +453,7 @@ def review():
         news_w = [f'{datetime.fromisoformat(e["date"]).astimezone(COT):%a %H:%M} {e["country"]} {e["impact"]}: {e["title"]}'
                   for e in ev if e["impact"] == "High" and e["country"] in (pair[:3], pair[3:])]
         out.append({"setup": s, "touches": touches(pair, s[2], s[3]),
-                    "trend": {"weekly": trend(candles(pair, 168, 104), 2), "daily": trend(candles(pair, 24, 60), 3), "four_hour": trend(candles(pair, 4, 200), 3)},
+                    "trend": {"weekly": trend(candles(pair, 168, 104), 1), "daily": trend(candles(pair, 24, 60), 2), "four_hour": trend(candles(pair, 4, 200), 2)},
                     "high_impact_news_this_week": news_w,
                     "shared_currency_with_other_setups": {c: ccy_count[c] - 1 for c in (pair[:3], pair[3:]) if ccy_count[c] > 1}})
     return {"setups": out, "strength": strength(), "rules": cfg.get("rules", {}), "risk": cfg.get("risk", {})}
