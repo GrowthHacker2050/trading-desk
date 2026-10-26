@@ -77,7 +77,8 @@ def live(pairs):
 
 # ---------------- TradingView candles (same OANDA data as Matt's TradingView charts) ----------------
 _TV_CACHE = {}
-_TV_RES = {1: "60", 2: "120", 4: "240", 24: "1D", 168: "1W"}
+_TV_RES = {0.5: "30", 1: "60", 2: "120", 4: "240", 24: "1D", 168: "1W"}
+_TV_FORMING = {}  # (pair, tf) -> the candle still open (for "forming" patterns)
 
 
 def _tv_frame(obj):
@@ -129,6 +130,8 @@ def tv_candles(pair, tf_hours, n=500):
         if tf_hours == 24: span = 86400
         if t + span <= now + 60:  # closed bars only
             out.append({"t": int(t), "o": o, "h": h, "l": l, "c": c})
+        else:
+            _TV_FORMING[key] = {"t": int(t), "o": o, "h": h, "l": l, "c": c}
     if len(out) < 10: raise RuntimeError("TradingView returned too few closed candles")
     _TV_CACHE[key] = out
     return out[-n:]
@@ -151,6 +154,7 @@ def candles(pair, tf_hours, n=80):
 def backup_candles(pair, tf_hours, n=80):
     """Closed candles. tf_hours 1/2/4 built from Yahoo 1H data on the New York 17:00 boundary; 24 = daily, 168 = weekly."""
     sym = "GC=F" if pair == "XAUUSD" else f"{pair}=X"
+    if tf_hours < 1: return []  # no 30-minute backup feed
     if tf_hours >= 168:  # weekly: completed weeks only (the feed's current and last partial bars are unreliable)
         d = http(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1wk&range=2y")["chart"]["result"][0]
         q = d["indicators"]["quote"][0]
@@ -194,53 +198,252 @@ def _gold_shift(pair, bars, last_fut=None):
 def swings(b, k=2):
     hi = [i for i in range(k, len(b) - k) if all(b[i]["h"] >= b[i + j]["h"] and b[i]["h"] >= b[i - j]["h"] for j in range(1, k + 1))]
     lo = [i for i in range(k, len(b) - k) if all(b[i]["l"] <= b[i + j]["l"] and b[i]["l"] <= b[i - j]["l"] for j in range(1, k + 1))]
-    return hi, lo
+    # two neighbouring candles with the same high/low are ONE swing, not two
+    dedup = lambda idx, f: [i for n, i in enumerate(idx) if n == 0 or not (i - idx[n - 1] <= k and b[i][f] == b[idx[n - 1]][f])]
+    return dedup(hi, "h"), dedup(lo, "l")
 
 
-def patterns(b, side, lo, hi, atr):
-    """Patterns completed on the LAST closed bar, in the plan direction, at or near the AOI."""
+def detect(b, side, lo, hi, atr, need_zone=True):
+    """Candlestick Trading Bible patterns completed on the LAST bar of b, in the plan direction, at or near the zone.
+    Returns [{"pattern": name, "n": candles in the pattern (counted back from the last bar)}]."""
     if len(b) < 30: return []
-    found = []
+    out = []
+    add = lambda name, n: out.append({"pattern": name, "n": n})
     x, y, z = b[-3], b[-2], b[-1]
     body = lambda c: abs(c["c"] - c["o"]); rng = lambda c: max(c["h"] - c["l"], 1e-9)
+    upw = lambda c: c["h"] - max(c["o"], c["c"]); low = lambda c: min(c["o"], c["c"]) - c["l"]
     tol = 0.15 * atr
     touch = lambda c: c["l"] <= hi + tol and c["h"] >= lo - tol
-    if not (touch(z) or touch(y)): return []
+    if need_zone and not any(touch(c) for c in b[-5:]): return []
     bull = side == "BUY"
-    if bull and z["c"] > z["o"] and y["c"] < y["o"] and z["c"] >= y["o"] and z["o"] <= y["c"] and body(z) > body(y): found.append("bullish engulfing")
-    if not bull and z["c"] < z["o"] and y["c"] > y["o"] and z["c"] <= y["o"] and z["o"] >= y["c"] and body(z) > body(y): found.append("bearish engulfing")
-    lw, uw = min(z["o"], z["c"]) - z["l"], z["h"] - max(z["o"], z["c"])
-    if bull and lw >= 2 * body(z) and lw >= 0.6 * rng(z) and z["l"] <= hi + tol and z["c"] > hi - (hi - lo) / 2: found.append("bullish pin bar")
-    if not bull and uw >= 2 * body(z) and uw >= 0.6 * rng(z) and z["h"] >= lo - tol and z["c"] < lo + (hi - lo) / 2: found.append("bearish pin bar")
-    if bull and x["c"] < x["o"] and body(y) <= 0.35 * body(x) and z["c"] > z["o"] and z["c"] > (x["o"] + x["c"]) / 2: found.append("morning star")
-    if not bull and x["c"] > x["o"] and body(y) <= 0.35 * body(x) and z["c"] < z["o"] and z["c"] < (x["o"] + x["c"]) / 2: found.append("evening star")
-    win = b[-14:-1]
-    first = lambda pred: not any(pred(c) for c in b[-6:-1])  # first retest only
-    if bull and any(c["c"] > hi for c in win) and z["l"] <= hi + 0.1 * atr and z["c"] > hi and first(lambda c: c["l"] <= hi + 0.1 * atr): found.append("break and retest (support held)")
-    if not bull and any(c["c"] < lo for c in win) and z["h"] >= lo - 0.1 * atr and z["c"] < lo and first(lambda c: c["h"] >= lo - 0.1 * atr): found.append("break and retest (resistance held)")
+    at_zone = touch(z) or touch(y)
+    # --- engulfing (Bible: the second body fully covers the first) ---
+    if at_zone:
+        if bull and z["c"] > z["o"] and y["c"] < y["o"] and z["c"] >= y["o"] and z["o"] <= y["c"] and body(z) > body(y): add("bullish engulfing", 2)
+        if not bull and z["c"] < z["o"] and y["c"] > y["o"] and z["c"] <= y["o"] and z["o"] >= y["c"] and body(z) > body(y): add("bearish engulfing", 2)
+    # --- single-candle rejections: dragonfly / gravestone doji first, else pin bar, else plain doji ---
+    big = rng(z) >= 0.4 * atr
+    if touch(z) and big:
+        doji = body(z) <= 0.1 * rng(z)
+        if bull and doji and upw(z) <= 0.15 * rng(z) and low(z) >= 0.6 * rng(z): add("dragonfly doji", 1)
+        elif not bull and doji and low(z) <= 0.15 * rng(z) and upw(z) >= 0.6 * rng(z): add("gravestone doji", 1)
+        elif bull and low(z) >= 2 * body(z) and low(z) >= 0.6 * rng(z) and z["l"] <= hi + tol and z["c"] > hi - (hi - lo) / 2: add("bullish pin bar", 1)
+        elif not bull and upw(z) >= 2 * body(z) and upw(z) >= 0.6 * rng(z) and z["h"] >= lo - tol and z["c"] < lo + (hi - lo) / 2: add("bearish pin bar", 1)
+        elif doji and min(upw(z), low(z)) >= 0.2 * rng(z): add("doji", 1)
+    # --- morning / evening star ---
+    if any(touch(c) for c in (x, y, z)):
+        if bull and x["c"] < x["o"] and body(y) <= 0.35 * body(x) and z["c"] > z["o"] and z["c"] > (x["o"] + x["c"]) / 2: add("morning star", 3)
+        if not bull and x["c"] > x["o"] and body(y) <= 0.35 * body(x) and z["c"] < z["o"] and z["c"] < (x["o"] + x["c"]) / 2: add("evening star", 3)
+    # --- tweezers (same low / same high, opposite colours) ---
+    if at_zone:
+        same, sized = 0.05 * atr, rng(y) >= 0.5 * atr and rng(z) >= 0.5 * atr
+        if bull and sized and y["c"] < y["o"] and z["c"] > z["o"] and abs(y["l"] - z["l"]) <= same: add("tweezer bottom", 2)
+        if not bull and sized and y["c"] > y["o"] and z["c"] < z["o"] and abs(y["h"] - z["h"]) <= same: add("tweezer top", 2)
+    # --- inside bar (harami): last bar inside a big mother bar ---
+    inside = lambda c, m: c["h"] <= m["h"] and c["l"] >= m["l"]
+    if at_zone and inside(z, y) and rng(y) >= 0.8 * atr and rng(z) <= 0.6 * rng(y):
+        if bull and y["c"] < y["o"]: add("bullish inside bar", 2)
+        if not bull and y["c"] > y["o"]: add("bearish inside bar", 2)
+    # --- inside bar breakout and false breakout (mother 2-4 bars back, at least one inside bar after it) ---
+    for k in (3, 4, 5):
+        m, mid = b[-k], b[-k + 1:-1]
+        if not mid or rng(m) < 0.6 * atr or not any(touch(c) for c in b[-k:]): continue
+        if all(inside(c, m) for c in mid):
+            if bull and z["c"] > m["h"]: add("inside bar breakout (bullish)", k); break
+            if not bull and z["c"] < m["l"]: add("inside bar breakout (bearish)", k); break
+            if bull and z["l"] < m["l"] and z["c"] > m["l"] and z["c"] > z["o"]: add("inside bar false breakout (bullish)", k); break
+            if not bull and z["h"] > m["h"] and z["c"] < m["h"] and z["c"] < z["o"]: add("inside bar false breakout (bearish)", k); break
+        # trap over two bars: the bar before broke out, the last bar closed back inside
+        if len(mid) >= 2 and all(inside(c, m) for c in mid[:-1]):
+            if bull and y["c"] < m["l"] and z["c"] > m["l"] and z["c"] > z["o"]: add("inside bar false breakout (bullish)", k); break
+            if not bull and y["c"] > m["h"] and z["c"] < m["h"] and z["c"] < z["o"]: add("inside bar false breakout (bearish)", k); break
+    # --- break and retest of the zone ---
+    # (closed beyond the zone earlier, came back to test it on one of the last 2 candles, last candle closes away from it)
+    broke = b[-14:-2]
+    if bull and any(c["c"] > hi for c in broke) and min(y["l"], z["l"]) <= hi + 0.1 * atr and z["c"] > hi and z["c"] > z["o"] and y["c"] >= lo: add("break and retest (support held)", 2)
+    if not bull and any(c["c"] < lo for c in broke) and max(y["h"], z["h"]) >= lo - 0.1 * atr and z["c"] < lo and z["c"] < z["o"] and y["c"] <= hi: add("break and retest (resistance held)", 2)
+    # --- change of character on CLOSES: trend was against the plan, the last close breaks the last swing close ---
+    c = [bb["c"] for bb in b]
+    piv_h = [j for j in range(2, len(c) - 3) if all(c[j] >= c[j + m] and c[j] >= c[j - m] for m in (1, 2))]
+    piv_l = [j for j in range(2, len(c) - 3) if all(c[j] <= c[j + m] and c[j] <= c[j - m] for m in (1, 2))]
+    before = trend(b[:-1], 2)
+    if bull and before == "Bearish" and piv_h and c[-1] > c[piv_h[-1]] >= c[-2]: add("change of character (bullish)", len(c) - piv_h[-1])
+    if not bull and before == "Bullish" and piv_l and c[-1] < c[piv_l[-1]] <= c[-2]: add("change of character (bearish)", len(c) - piv_l[-1])
+    # --- chart patterns on the neckline break ---
     sh, sl = swings(b[:-1])
     dtol = 0.35 * atr
     if not bull and len(sh) >= 2:
         a, c2 = sh[-2], sh[-1]
         if abs(b[a]["h"] - b[c2]["h"]) <= dtol and c2 - a >= 4:
             neck = min(bb["l"] for bb in b[a:c2 + 1])
-            if z["c"] < neck <= y["c"]: found.append("double top (neckline break)")
+            if z["c"] < neck <= y["c"]: add("double top (neckline break)", len(b) - a)
     if bull and len(sl) >= 2:
         a, c2 = sl[-2], sl[-1]
         if abs(b[a]["l"] - b[c2]["l"]) <= dtol and c2 - a >= 4:
             neck = max(bb["h"] for bb in b[a:c2 + 1])
-            if z["c"] > neck >= y["c"]: found.append("double bottom (neckline break)")
+            if z["c"] > neck >= y["c"]: add("double bottom (neckline break)", len(b) - a)
     if not bull and len(sh) >= 3:
         l_, h_, r_ = sh[-3:]
         if b[h_]["h"] > max(b[l_]["h"], b[r_]["h"]) and abs(b[l_]["h"] - b[r_]["h"]) <= 0.6 * atr:
             neck = min(min(bb["l"] for bb in b[l_:h_ + 1]), min(bb["l"] for bb in b[h_:r_ + 1]))
-            if z["c"] < neck <= y["c"]: found.append("head and shoulders (neckline break)")
+            if z["c"] < neck <= y["c"]: add("head and shoulders (neckline break)", len(b) - l_)
     if bull and len(sl) >= 3:
         l_, h_, r_ = sl[-3:]
         if b[h_]["l"] < min(b[l_]["l"], b[r_]["l"]) and abs(b[l_]["l"] - b[r_]["l"]) <= 0.6 * atr:
             neck = max(max(bb["h"] for bb in b[l_:h_ + 1]), max(bb["h"] for bb in b[h_:r_ + 1]))
-            if z["c"] > neck >= y["c"]: found.append("inverse head and shoulders (neckline break)")
-    return found
+            if z["c"] > neck >= y["c"]: add("inverse head and shoulders (neckline break)", len(b) - l_)
+    return out
+
+
+def patterns(b, side, lo, hi, atr):
+    """Pattern names completed on the LAST closed bar (kept for the bot's existing commands)."""
+    return [d["pattern"] for d in detect(b, side, lo, hi, atr)]
+
+
+ENTRY_PATTERNS = {"bullish engulfing", "bearish engulfing", "bullish pin bar", "bearish pin bar", "morning star", "evening star",
+                  "tweezer bottom", "tweezer top", "inside bar breakout (bullish)", "inside bar breakout (bearish)",
+                  "inside bar false breakout (bullish)", "inside bar false breakout (bearish)",
+                  "break and retest (support held)", "break and retest (resistance held)",
+                  "double top (neckline break)", "double bottom (neckline break)",
+                  "head and shoulders (neckline break)", "inverse head and shoulders (neckline break)"}
+TF_NAME = {1: "1-hour", 4: "4-hour", 24: "Daily"}
+
+
+def pattern_cards(pair, side, lo, hi, atr, bars_by_tf):
+    """Confirmed (last closed candle) and forming (candle still open) patterns on the 1-hour, 4-hour and Daily,
+    with the last 8 candles for the Desk diagram. 'kind' = entry (a trigger) or warning (doji, inside bar, change of character)."""
+    cards = []
+    for tf in (24, 4, 1):
+        b = bars_by_tf.get(tf) or []
+        if len(b) < 30: continue
+        fb = _TV_FORMING.get((pair, tf))
+        for state, bars in (("confirmed", b), ("forming", b + [fb] if fb else None)):
+            if not bars: continue
+            for d in detect(bars, side, lo, hi, atr_of(b) or atr):
+                if state == "forming" and any(c["pattern"] == d["pattern"] and c["tf"] == TF_NAME[tf] for c in cards): continue
+                win = 8 if d["n"] <= 6 else min(40, d["n"] + 4)  # chart patterns need the whole shape on screen
+                last = bars[-win:]; n = min(d["n"], win)
+                closes = datetime.fromtimestamp(bars[-1]["t"] + tf * 3600, timezone.utc).astimezone(COT)
+                cards.append({"tf": TF_NAME[tf], "pattern": d["pattern"], "state": state,
+                              "kind": "entry" if d["pattern"] in ENTRY_PATTERNS else "warning",
+                              "candle_close_cot": closes.strftime("%a %H:%M") if tf < 24 else closes.strftime("%a %b %d"),
+                              "candles": [[round(v, 5) for v in (c["o"], c["h"], c["l"], c["c"])] for c in last],
+                              "mark": list(range(len(last) - n, len(last)))})
+    return cards
+
+
+# ---------------- Perfect Trade checklist auto-grade (same boxes and weights as theperfecttrade checklist) ----------------
+CHECK = [("W", [("trend", 10), ("aoi", 10), ("ema", 5), ("round", 5), ("prev", 10), ("rej", 10), ("bnr", 10)]),
+         ("D", [("trend", 10), ("aoi", 10), ("ema", 5), ("round", 5), ("prev", 10), ("rej", 10), ("bnr", 10)]),
+         ("H4", [("trend", 5), ("aoi", 5), ("ema", 5), ("round", 5), ("prev", 10), ("rej", 5), ("bnr", 10)]),
+         ("LTF", [("trend", 5), ("ema", 5), ("bnr", 5)]),
+         ("ENTRY", [("sos", 10), ("eng", 10)]),
+         ("RISK", [("sl", 0), ("tp", 0)])]
+TIERS = [(160, "Perfect trade"), (140, "Excellent"), (120, "Outstanding"), (100, "Very strong"), (90, "Strong"),
+         (80, "Good"), (70, "Acceptable"), (60, "Moderate"), (0, "Weak")]
+REJECTION = {"bullish engulfing", "bearish engulfing", "bullish pin bar", "bearish pin bar", "dragonfly doji", "gravestone doji",
+             "morning star", "evening star", "tweezer bottom", "tweezer top", "inside bar false breakout (bullish)", "inside bar false breakout (bearish)"}
+STRUCT = {"break and retest (support held)", "break and retest (resistance held)", "head and shoulders (neckline break)",
+          "inverse head and shoulders (neckline break)", "double top (neckline break)", "double bottom (neckline break)"}
+
+
+def ema(vals, n=50):
+    if len(vals) < n: return None
+    k, e = 2 / (n + 1), sum(vals[:n]) / n
+    for v in vals[n:]: e = v * k + e * (1 - k)
+    return e
+
+
+def atr_of(b, n=14):
+    tr = [max(b[i]["h"], b[i - 1]["c"]) - min(b[i]["l"], b[i - 1]["c"]) for i in range(1, len(b))]
+    return sum(tr[-n:]) / min(n, len(tr)) if tr else 0
+
+
+def recent_any(b, side, lo, hi, atr, names, look=3):
+    """Pattern from `names` on any of the last `look` closed bars of b."""
+    for i in range(look):
+        bars = b[:len(b) - i]
+        for d in detect(bars, side, lo, hi, atr):
+            if d["pattern"] in names: return d["pattern"], i
+    return None, None
+
+
+def checklist_grade(pair, side, lo, hi, plan, price, bars):
+    """Grade one setup against Matt's Perfect Trade checklist. bars: {168, 24, 4, 2, 1, 0.5: candles}. Returns score out of 200."""
+    want = "Bullish" if side == "BUY" else "Bearish"
+    word = "bullish" if side == "BUY" else "bearish"
+    items, P = [], pip(pair)
+    fmt = lambda v: f"{v:.{2 if pair == 'XAUUSD' else 3 if 'JPY' in pair else 5}f}"
+    mid = (lo + hi) / 2
+    dist_zone = 0.0 if lo <= price <= hi else min(abs(price - lo), abs(price - hi))
+    step = 50.0 if pair == "XAUUSD" else 1.0 if "JPY" in pair else 0.01  # big round numbers: 00 levels (gold: every $50)
+    rnd = round(mid / step) * step
+    tfs = {"W": 168, "D": 24, "H4": 4}
+    names = {"W": "Weekly", "D": "Daily", "H4": "4-hour", "LTF": "1-hour"}
+
+    def it(sec, iid, w, ok, why): items.append({"id": f"{sec}:{iid}", "w": w, "ok": bool(ok), "why": why})
+
+    for sec, tf in tfs.items():
+        b = bars.get(tf) or []
+        w = dict(CHECK[[s for s, _ in CHECK].index(sec)][1])
+        if len(b) < 20:
+            for iid in w: it(sec, iid, w[iid], False, "not enough candles")
+            continue
+        a = atr_of(b) or 1e-9
+        tr = trend(b, 1 if tf == 168 else 2)
+        it(sec, "trend", w["trend"], tr == want, f"{names[sec]} structure on closes: {tr.lower()}")
+        st = touch_stats(b[-(104 if tf == 168 else 250 if tf == 24 else 360):], lo, hi)
+        near = dist_zone <= 0.5 * a
+        it(sec, "aoi", w["aoi"], near and st["visits"] >= 3,
+           f"zone touched {st['visits']} times on the {names[sec]}, price {'at' if dist_zone == 0 else f'{dist_zone / P:.0f} pips from'} the zone")
+        e = ema([x["c"] for x in b] + [price])
+        it(sec, "ema", w["ema"], e is not None and abs(price - e) <= 0.5 * a,
+           f"50 EMA {fmt(e)} is {abs(price - e) / P:.0f} pips from price" if e else "not enough candles for the 50 EMA")
+        rnd_ok = lo - 10 * P <= rnd <= hi + 10 * P  # a 00 level inside the zone, give or take 10 pips
+        it(sec, "round", w["round"], rnd_ok, f"round number {fmt(rnd)} {'is inside' if rnd_ok else 'is not inside'} the zone")
+        c = [x["c"] for x in b[:-5]]
+        piv = [c[j] for j in range(2, len(c) - 2) if (c[j] >= max(c[j - 2:j + 3])) or (c[j] <= min(c[j - 2:j + 3]))]
+        hit = [v for v in piv if lo - 0.3 * a <= v <= hi + 0.3 * a]
+        it(sec, "prev", w["prev"], bool(hit), f"{len(hit)} old swing close{'s' if len(hit) != 1 else ''} inside the zone" if hit else "no old high or low lines up with the zone")
+        p, ago = recent_any(b, side, lo, hi, a, REJECTION, 2)
+        it(sec, "rej", w["rej"], p, f"{p} on the {names[sec]}" + (" (last candle)" if ago == 0 else " (previous candle)") if p else f"no {word} rejection candle at the zone yet")
+        p, ago = recent_any(b, side, lo, hi, a, STRUCT, 6)
+        it(sec, "bnr", w["bnr"], p, f"{p} on the {names[sec]}" if p else "no break and retest or head and shoulders yet")
+
+    h1 = bars.get(1) or []
+    a1 = atr_of(h1) or 1e-9
+    t1 = trend(h1, 2) if len(h1) > 20 else "Not enough data"
+    it("LTF", "trend", 5, t1 == want, f"1-hour structure on closes: {t1.lower()}")
+    e1 = ema([x["c"] for x in h1] + [price])
+    it("LTF", "ema", 5, e1 is not None and abs(price - e1) <= 0.5 * a1, f"1-hour 50 EMA {abs(price - e1) / P:.0f} pips from price" if e1 else "no 1-hour EMA")
+    p, _ = recent_any(h1, side, lo, hi, a1, STRUCT, 6) if len(h1) > 30 else (None, None)
+    it("LTF", "bnr", 5, p, f"{p} on the 1-hour" if p else "no 1-hour break and retest yet")
+
+    # shift of structure: the 1-hour close-trend turned the plan's way within the last 24 hours
+    sos = len(h1) > 60 and t1 == want and trend(h1[:-24], 2) != want
+    it("ENTRY", "sos", 10, sos, "1-hour structure shifted your way in the last 24 hours" if sos else
+       ("1-hour already trending your way (no fresh shift)" if t1 == want else "no shift of structure your way on the 1-hour yet"))
+    eng = None
+    for tf in (0.5, 1, 2, 4):
+        b = bars.get(tf) or []
+        if len(b) > 30 and any(d["pattern"].endswith("engulfing") for d in detect(b, side, lo, hi, atr_of(b))):
+            eng = {0.5: "30-minute", 1: "1-hour", 2: "2-hour", 4: "4-hour"}[tf]; break
+    it("ENTRY", "eng", 10, eng, f"closed {word} engulfing on the {eng}" if eng else f"no closed {word} engulfing at the zone (30-minute to 4-hour)")
+    entry, sl, tp = (plan + [None] * 3)[:3]
+    it("RISK", "sl", 0, sl, f"stop loss {fmt(sl)}" if sl else "no stop loss in the plan")
+    it("RISK", "tp", 0, tp, f"take profit {fmt(tp)}" if tp else "no take profit in the plan")
+
+    on = {x["id"] for x in items if x["ok"]}
+    score = sum(x["w"] for x in items if x["ok"])
+    tier = next(n for m, n in TIERS if score >= m)
+    gates = [("2 of 3 trends (Weekly / Daily / 4-hour)", sum(f"{s}:trend" in on for s in ("W", "D", "H4")) >= 2),
+             ("At a Weekly or Daily zone", "W:aoi" in on or "D:aoi" in on),
+             ("Entry signal fired", "ENTRY:sos" in on or "ENTRY:eng" in on),
+             ("Stop loss + take profit set", "RISK:sl" in on and "RISK:tp" in on),
+             ("Pair + direction picked", True)]
+    return {"score": score, "max": 200, "tier": tier, "go": all(ok for _, ok in gates),
+            "gates": [{"label": g, "ok": ok} for g, ok in gates], "items": items,
+            "prefill": {"pair": pair, "dir": side, "on": sorted(on), "entry": entry, "sl": sl, "tp": tp}}
 
 
 def pip(pair): return 0.1 if pair == "XAUUSD" else 0.01 if "JPY" in pair else 0.0001
@@ -294,7 +497,7 @@ def scan():
     sess = session(now)
     setups = cfg["setups"]
     q = live([s[0] for s in setups])
-    rows, alerts, signals = [], [], []
+    rows, alerts, signals, heads_up = [], [], [], []
     for pair, side, lo, hi, entry, sl, tp, iside, ilvl, grade in setups:
         d = q[pair]; atr = d["atr4"]
         st, dist = status(d["price"], lo, hi, atr, (iside, ilvl), d["hhi"], d["hlo"])
@@ -303,14 +506,22 @@ def scan():
                      "pips_away": round(dist / pip(pair)), "zone": [lo, hi], "plan": [entry, sl, tp]})
         if RANK[st] > RANK[pst] and st != "FAR": alerts.append(rows[-1])
         if st in ("AT ZONE", "NEAR"):
-            for tf in (1, 4):
-                bars = candles(pair, tf)
-                for p in patterns(bars, side, lo, hi, atr):
+            g = checklist_grade(pair, side, lo, hi, [entry, sl, tp], d["price"], all_bars(pair))
+            rows[-1]["checklist"] = {"score": g["score"], "tier": g["tier"], "go": g["go"],
+                                 "ticked": [x["why"] for x in g["items"] if x["ok"] and x["w"]],
+                                 "missing": [x["why"] for x in g["items"] if not x["ok"] and x["w"]],
+                                 "gates_failed": [x["label"] for x in g["gates"] if not x["ok"]]}
+            for tf in (1, 4, 24):
+                bars = candles(pair, tf, 250)
+                for p in patterns(bars, side, lo, hi, atr_of(bars) or atr):
+                    if p not in ENTRY_PATTERNS:  # doji, inside bar, change of character = heads-up, not an entry
+                        heads_up.append({"pair": pair, "side": side, "tf": {1: "1-hour", 4: "4-hour", 24: "Daily"}[tf], "pattern": p}); continue
                     z = bars[-1]
                     stop = (max(z["h"], hi) + 0.1 * atr) if side == "SELL" else (min(z["l"], lo) - 0.1 * atr)
                     ent = d["price"]; slp = abs(ent - stop) / pip(pair)
-                    signals.append({"pair": pair, "side": side, "grade": grade, "tf": f"{tf}H", "pattern": p,
-                                    "candle_close_cot": datetime.fromtimestamp(z["t"] + tf * 3600, timezone.utc).astimezone(COT).strftime("%a %H:%M"),
+                    signals.append({"pair": pair, "side": side, "grade": grade, "tf": {1: "1H", 4: "4H", 24: "Daily"}[tf], "pattern": p,
+                                    "checklist": rows[-1]["checklist"],
+                                    "candle_close_cot": datetime.fromtimestamp(z["t"] + tf * 3600, timezone.utc).astimezone(COT).strftime("%a %H:%M" if tf < 24 else "%a %b %d"),
                                     "entry_now": ent, "stop": round(stop, 5), "stop_pips": round(slp, 1),
                                     "r_levels": [round(ent + k * (ent - stop), 5) for k in (1, 2, 3)],
                                     "lots": lots(cfg, pair, grade, slp, q), "your_plan_entry_sl_tp": [entry, sl, tp]})
@@ -318,7 +529,7 @@ def scan():
                     if lt: signals[-1]["risk_usd"] = round(lt * slp * pip_value_usd(pair, q), 2)
     ccy = sorted({s[0][:3] for s in setups} | {s[0][3:] for s in setups})
     return {"now_cot": now.astimezone(COT).strftime("%a %b %d %H:%M"), "session": sess, "paused": cfg.get("paused", False),
-            "expires": cfg.get("expires"), "rows": rows, "proximity_alerts": alerts, "entry_signals": signals,
+            "expires": cfg.get("expires"), "rows": rows, "proximity_alerts": alerts, "entry_signals": signals, "heads_up": heads_up,
             "news_next_3h": news(ccy), "risk_set": bool(cfg.get("risk", {}).get("balance"))}
 
 
@@ -339,6 +550,16 @@ def trend(b, k):
     return state
 
 
+def all_bars(pair):
+    """Every timeframe the checklist and the pattern cards need (cached per run)."""
+    want = {168: 104, 24: 250, 4: 400, 2: 200, 1: 200, 0.5: 200}
+    out = {}
+    for tf, n in want.items():
+        try: out[tf] = candles(pair, tf, n)
+        except Exception: out[tf] = []
+    return out
+
+
 def snapshot():
     _, cfg = find_config()
     sc = scan()
@@ -346,11 +567,14 @@ def snapshot():
     pairs = []
     for row, s in zip(sc["rows"], cfg["setups"]):
         pair, side = s[0], s[1]
-        h1, h4, d1, w1 = candles(pair, 1, 200), candles(pair, 4, 200), candles(pair, 24, 60), candles(pair, 168, 104)
+        bars = all_bars(pair)
+        h1, h4, d1, w1 = bars[1], bars[4], bars[24], bars[168]
         atr = live([pair])[pair]["atr4"]
         pats = [{"tf": "1-hour", "pattern": p} for p in patterns(h1, side, s[2], s[3], atr)] + [{"tf": "4-hour", "pattern": p} for p in patterns(h4, side, s[2], s[3], atr)]
         pairs.append({**row, "invalid": {"side": s[7], "level": s[8]},
-                      "trend": {"weekly": trend(w1, 1), "daily": trend(d1, 2), "h4": trend(h4, 2)}, "patterns_now": pats})
+                      "trend": {"weekly": trend(w1, 1), "daily": trend(d1, 2), "h4": trend(h4, 2)}, "patterns_now": pats,
+                      "cards": pattern_cards(pair, side, s[2], s[3], atr, bars),
+                      "checklist": checklist_grade(pair, side, s[2], s[3], [s[4], s[5], s[6]], row["price"], bars)})
     nx = news(ccy, 48, ("High", "Medium"))
     lq = live([])
     rates = {k: lq[k]["price"] for k in ("USDJPY", "USDCAD", "USDCHF", "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD") if k in lq}

@@ -134,6 +134,47 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
 .strack i.up{left:50%;background:var(--buy)} .strack i.dn{right:50%;background:var(--sell)}
 .strack::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--line)}
 .srow .m{text-align:right;font-size:12px}
+
+/* pattern cards + checklist grade */
+.sighd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.sighd h2{margin:0;flex:1}
+#quizBtn{white-space:nowrap}
+.pbtn{font:600 12px var(--body);border:1px solid var(--teal);color:var(--teal);background:transparent;border-radius:6px;padding:3px 9px;cursor:pointer}
+.pbtn[aria-pressed="true"]{background:var(--teal);color:var(--teal-fg)}
+.list li.pcard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:7px}
+.list li.pcard.warning{border-style:dashed}
+.list li.pcard:last-child{padding-bottom:10px;border-bottom:1px solid var(--line)}
+.list li.pcard.warning:last-child{border-bottom-style:dashed}
+.phd{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px}
+.pchip{font:600 10.5px var(--body);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px;border:1px solid var(--line);background:var(--sunk);white-space:nowrap}
+.pchip.ok{background:var(--buy);color:#fff;border-color:var(--buy)}
+.pchip.form{background:transparent;color:var(--warn);border-color:var(--warn)}
+.pchip.warn{background:transparent;color:var(--muted)}
+.sd-buy{color:var(--buy)} .sd-sell{color:var(--sell)}
+.ptwo{display:grid;grid-template-columns:1.55fr 1fr;gap:8px}
+.pcap{font:600 10px var(--body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+.patsvg{display:block;background:var(--sunk);border-radius:8px;border:1px solid var(--line)}
+.pnm{font:700 21px var(--display);line-height:1;letter-spacing:.02em}
+.pnm.hide{filter:blur(7px);user-select:none}
+.pwhen{font-size:12px;color:var(--muted);margin-top:-3px}
+.pcard p{margin:0;font-size:13px}
+.psig{font-size:12px;background:var(--sunk);border-radius:6px;padding:5px 8px}
+.pwhy summary,.pmore summary,.gdet summary{cursor:pointer;color:var(--teal);font-weight:600;font-size:13px}
+.pwhy p{margin-top:5px}
+.pmut{color:var(--muted);font-size:12px}
+.grade-box{display:grid;gap:6px;border-top:1px dashed var(--line);padding-top:8px}
+.ghd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gsc{font:700 22px var(--display)}
+.gtier{color:#fff;font:600 11px var(--body);letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:999px}
+.ghd .pmut{margin-left:auto}
+.gbar{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.gbar i{display:block;height:100%}
+.ggates{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px}
+.ggates .ok{color:var(--buy)} .ggates .no{color:var(--muted)}
+.gsec{margin-top:8px;display:grid;gap:4px}
+.gi{display:grid;grid-template-columns:16px 1fr;gap:6px;font-size:12.5px}
+.gi.ok>span{color:var(--buy);font-weight:700} .gi.no>span{color:var(--sell)}
+.gi.no b{color:var(--muted);font-weight:500}
 </style>
 
 <div class="stale" id="stale" role="alert"></div>
@@ -170,7 +211,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
 
     <aside class="side-col">
       <section class="panel">
-        <h2>Entry signals right now</h2>
+        <div class="sighd"><h2>Entry signals right now</h2><button type="button" class="pbtn notr" id="quizBtn" aria-pressed="false">Quiz me</button></div>
         <ul class="list" id="signals"><li class="empty">No entry pattern at your zones on the last closed 1-hour or 4-hour candle.</li></ul>
       </section>
       <section class="panel">
@@ -237,12 +278,470 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
   <div class="legend" id="dLegend"></div>
 </dialog>
 <script>
+/* Candlestick pattern library (from The Candlestick Trading Bible) + SVG diagram drawer.
+   Each diagram: list of candles [open, high, low, close] on a 0-100 scale, `mark` = indexes of the pattern candles,
+   optional `line` = horizontal level {y, label}. */
+const PATLIB = {
+  "bullish engulfing": {
+    bias: "BUY", name: "Bullish engulfing",
+    c: [[70,74,60,62],[63,66,52,54],[56,58,44,46],[48,50,40,42],[41,58,38,56],[56,64,54,62]], mark: [3, 4],
+    what: "A big bullish body fully covers the small bearish body before it.",
+    why: "Sellers pushed down, then buyers swallowed the whole move. Control flipped to buyers in one candle.",
+    use: "At your zone with the Weekly and Daily up = buy trigger. Stop loss below the engulfing candle's low."
+  },
+  "bearish engulfing": {
+    bias: "SELL", name: "Bearish engulfing",
+    c: [[30,40,26,38],[37,48,35,46],[44,56,42,54],[52,60,50,58],[59,62,42,44],[44,46,36,38]], mark: [3, 4],
+    what: "A big bearish body fully covers the small bullish body before it.",
+    why: "Buyers pushed up, then sellers swallowed the whole move. Control flipped to sellers in one candle.",
+    use: "At your zone with the Weekly and Daily down = sell trigger. Stop loss above the engulfing candle's high."
+  },
+  "bullish pin bar": {
+    bias: "BUY", name: "Bullish pin bar (hammer)",
+    c: [[72,75,62,64],[64,66,54,56],[57,59,47,49],[50,52,24,54],[54,64,52,62]], mark: [3], line: {y: 30, label: "zone"},
+    what: "Small body near the top, long lower wick at least 2x the body.",
+    why: "Sellers drove price into the zone and got rejected hard. The long tail shows buyers defending that level.",
+    use: "Buy after the candle closes, stop loss below the tail. Safer entry: wait for a 50% pullback into the pin bar."
+  },
+  "bearish pin bar": {
+    bias: "SELL", name: "Bearish pin bar (shooting star)",
+    c: [[28,38,25,36],[36,46,34,44],[43,53,41,51],[50,76,48,46],[46,48,36,38]], mark: [3], line: {y: 70, label: "zone"},
+    what: "Small body near the bottom, long upper wick at least 2x the body.",
+    why: "Buyers pushed into the zone and got rejected hard. The long tail shows sellers defending that level.",
+    use: "Sell after the candle closes, stop loss above the tail. Safer entry: wait for a 50% pullback into the pin bar."
+  },
+  "morning star": {
+    bias: "BUY", name: "Morning star",
+    c: [[78,80,66,68],[68,70,56,58],[58,60,38,40],[39,42,34,38],[40,58,38,56],[56,64,54,62]], mark: [2, 3, 4],
+    what: "Three candles: a big bearish candle, a small indecision candle, then a bullish candle closing above the middle of the first.",
+    why: "Sellers in control, then they stall (small candle), then buyers take over. A bottom forming.",
+    use: "At a Daily or Weekly zone = strong reversal buy. Stop loss below the low of the middle candle."
+  },
+  "evening star": {
+    bias: "SELL", name: "Evening star",
+    c: [[22,34,20,32],[32,44,30,42],[42,62,40,60],[61,66,58,62],[60,62,42,44],[44,46,36,38]], mark: [2, 3, 4],
+    what: "Three candles: a big bullish candle, a small indecision candle, then a bearish candle closing below the middle of the first.",
+    why: "Buyers in control, then they stall, then sellers take over. A top forming.",
+    use: "At a Daily or Weekly zone = strong reversal sell. Stop loss above the high of the middle candle."
+  },
+  "dragonfly doji": {
+    bias: "BUY", name: "Dragonfly doji",
+    c: [[72,74,62,64],[64,66,54,56],[56,58,46,48],[48,49,24,48],[49,60,47,58]], mark: [3], line: {y: 30, label: "zone"},
+    what: "Open and close at the top, long lower wick, almost no body.",
+    why: "Sellers pushed hard, buyers brought price all the way back. Supply and demand reaching balance at support.",
+    use: "Warning that the fall may be ending. Not an entry alone: wait for a bullish close (engulfing or break) to confirm."
+  },
+  "gravestone doji": {
+    bias: "SELL", name: "Gravestone doji",
+    c: [[28,38,26,36],[36,46,34,44],[44,54,42,52],[52,76,51,52],[51,53,40,42]], mark: [3], line: {y: 70, label: "zone"},
+    what: "Open and close at the bottom, long upper wick, almost no body.",
+    why: "Buyers pushed high, sellers brought price all the way back. Strong supply at resistance.",
+    use: "Warning that the rise may be ending. Not an entry alone: wait for a bearish close to confirm."
+  },
+  "doji": {
+    bias: "", name: "Doji (indecision)",
+    c: [[30,40,28,38],[38,48,36,46],[46,56,44,54],[54,62,46,54],[53,55,44,46]], mark: [3],
+    what: "Open and close at the same price. Wicks on both sides.",
+    why: "Neither buyers nor sellers won. After a long move it shows the trend losing strength.",
+    use: "Never an entry alone. In a trade: the move may pause. At your zone: get ready and wait for the next candle."
+  },
+  "bullish inside bar": {
+    bias: "BUY", name: "Inside bar (bullish harami)",
+    c: [[70,72,60,62],[62,64,50,52],[54,56,32,34],[38,46,36,44],[44,58,42,56]], mark: [2, 3],
+    what: "A small candle sitting completely inside the range of the big candle before it (the mother bar).",
+    why: "The sellers' big move stopped dead. The market is pausing and deciding.",
+    use: "Buy only when price breaks above the mother bar's high. Stop loss below the mother bar."
+  },
+  "bearish inside bar": {
+    bias: "SELL", name: "Inside bar (bearish harami)",
+    c: [[30,40,28,38],[38,50,36,48],[46,68,44,66],[62,64,54,56],[56,58,42,44]], mark: [2, 3],
+    what: "A small candle sitting completely inside the range of the big candle before it (the mother bar).",
+    why: "The buyers' big move stopped dead. The market is pausing and deciding.",
+    use: "Sell only when price breaks below the mother bar's low. Stop loss above the mother bar."
+  },
+  "inside bar breakout (bullish)": {
+    bias: "BUY", name: "Inside bar breakout (up)",
+    c: [[40,46,38,44],[44,60,42,58],[56,59,48,52],[52,57,49,55],[55,70,54,68]], mark: [1, 2, 3, 4],
+    what: "Price closes above the high of the mother bar after one or more inside bars.",
+    why: "The pause is over and buyers won. The Bible's safest entry: trade the break of the pattern, not the guess.",
+    use: "With the trend at your zone = buy. Stop loss below the mother bar."
+  },
+  "inside bar breakout (bearish)": {
+    bias: "SELL", name: "Inside bar breakout (down)",
+    c: [[60,62,54,56],[56,58,40,42],[44,52,41,48],[48,51,43,45],[45,46,30,32]], mark: [1, 2, 3, 4],
+    what: "Price closes below the low of the mother bar after one or more inside bars.",
+    why: "The pause is over and sellers won. The Bible's safest entry: trade the break of the pattern, not the guess.",
+    use: "With the trend at your zone = sell. Stop loss above the mother bar."
+  },
+  "inside bar false breakout (bullish)": {
+    bias: "BUY", name: "False breakout (bear trap)",
+    c: [[60,62,46,48],[48,52,40,44],[44,50,42,47],[47,48,30,36],[36,56,34,54]], mark: [1, 2, 3, 4],
+    what: "Price breaks below the mother bar, traps sellers, then closes back inside and up.",
+    why: "Big players ran the stops below the low, then pushed the other way. Trapped sellers fuel the move up.",
+    use: "Buy after the candle that closes back inside. Stop loss below the fake-out low."
+  },
+  "inside bar false breakout (bearish)": {
+    bias: "SELL", name: "False breakout (bull trap)",
+    c: [[40,54,38,52],[52,60,48,56],[56,58,50,53],[53,70,52,64],[64,66,44,46]], mark: [1, 2, 3, 4],
+    what: "Price breaks above the mother bar, traps buyers, then closes back inside and down.",
+    why: "Big players ran the stops above the high, then pushed the other way. Trapped buyers fuel the move down.",
+    use: "Sell after the candle that closes back inside. Stop loss above the fake-out high."
+  },
+  "tweezer bottom": {
+    bias: "BUY", name: "Tweezer bottom",
+    c: [[72,74,62,64],[64,66,52,54],[54,56,34,40],[40,52,34,50],[50,60,48,58]], mark: [2, 3], line: {y: 34, label: "same low"},
+    what: "Two candles with the same low: a bearish one, then a bullish one.",
+    why: "Sellers tried the same low twice and failed. Buyers are holding that price.",
+    use: "At your zone = buy trigger. Stop loss below the shared low."
+  },
+  "tweezer top": {
+    bias: "SELL", name: "Tweezer top",
+    c: [[28,38,26,36],[36,48,34,46],[46,66,44,60],[60,66,48,50],[50,52,40,42]], mark: [2, 3], line: {y: 66, label: "same high"},
+    what: "Two candles with the same high: a bullish one, then a bearish one.",
+    why: "Buyers tried the same high twice and failed. Sellers are holding that price.",
+    use: "At your zone = sell trigger. Stop loss above the shared high."
+  },
+  "break and retest (support held)": {
+    bias: "BUY", name: "Break and retest",
+    c: [[30,38,28,36],[36,52,34,50],[50,62,48,60],[60,62,48,52],[52,54,47,50],[50,66,49,64]], mark: [1, 4, 5], line: {y: 48, label: "old resistance = support"},
+    what: "Price closed above a level, came back to test it, and held.",
+    why: "Old resistance became new support. Buyers who missed the break step in on the retest.",
+    use: "Buy on the bullish close at the retest. Stop loss below the level."
+  },
+  "break and retest (resistance held)": {
+    bias: "SELL", name: "Break and retest",
+    c: [[70,72,62,64],[64,66,48,50],[50,52,38,40],[40,52,38,48],[48,53,46,50],[50,51,34,36]], mark: [1, 4, 5], line: {y: 52, label: "old support = resistance"},
+    what: "Price closed below a level, came back to test it, and held.",
+    why: "Old support became new resistance. Sellers who missed the break step in on the retest.",
+    use: "Sell on the bearish close at the retest. Stop loss above the level."
+  },
+  "change of character (bullish)": {
+    bias: "BUY", name: "Change of character (up)",
+    line_chart: true, c: [[0,0,0,70],[0,0,0,50],[0,0,0,60],[0,0,0,38],[0,0,0,48],[0,0,0,30],[0,0,0,44],[0,0,0,62]], mark: [7], line: {y: 48, label: "last lower high (close)"},
+    what: "In a downtrend, a candle CLOSES above the last lower high.",
+    why: "The first sign the downtrend is over. On closes only, never wicks.",
+    use: "Not a buy yet. Wait for a higher low, then a bullish pattern at your zone."
+  },
+  "change of character (bearish)": {
+    bias: "SELL", name: "Change of character (down)",
+    line_chart: true, c: [[0,0,0,30],[0,0,0,50],[0,0,0,40],[0,0,0,62],[0,0,0,52],[0,0,0,70],[0,0,0,56],[0,0,0,38]], mark: [7], line: {y: 52, label: "last higher low (close)"},
+    what: "In an uptrend, a candle CLOSES below the last higher low.",
+    why: "The first sign the uptrend is over. On closes only, never wicks.",
+    use: "Not a sell yet. Wait for a lower high, then a bearish pattern at your zone."
+  },
+  "double bottom (neckline break)": {
+    bias: "BUY", name: "Double bottom",
+    line_chart: true, c: [[0,0,0,70],[0,0,0,30],[0,0,0,52],[0,0,0,31],[0,0,0,58]], mark: [1, 3, 4], line: {y: 52, label: "neckline"},
+    what: "Two lows at about the same price, then a close above the high between them.",
+    why: "Sellers failed twice at the same level. The neckline break confirms buyers took over.",
+    use: "Buy on the neckline break or its retest. Stop loss below the lows."
+  },
+  "double top (neckline break)": {
+    bias: "SELL", name: "Double top",
+    line_chart: true, c: [[0,0,0,30],[0,0,0,70],[0,0,0,48],[0,0,0,69],[0,0,0,42]], mark: [1, 3, 4], line: {y: 48, label: "neckline"},
+    what: "Two highs at about the same price, then a close below the low between them.",
+    why: "Buyers failed twice at the same level. The neckline break confirms sellers took over.",
+    use: "Sell on the neckline break or its retest. Stop loss above the highs."
+  },
+  "inverse head and shoulders (neckline break)": {
+    bias: "BUY", name: "Inverse head and shoulders",
+    line_chart: true, c: [[0,0,0,70],[0,0,0,38],[0,0,0,54],[0,0,0,22],[0,0,0,54],[0,0,0,38],[0,0,0,64]], mark: [1, 3, 5, 6], line: {y: 54, label: "neckline"},
+    what: "Three lows, the middle one lowest, then a close above the neckline.",
+    why: "Each sell-off got weaker after the deepest one. Classic bottom.",
+    use: "Buy on the neckline break or retest. Stop loss below the right shoulder."
+  },
+  "head and shoulders (neckline break)": {
+    bias: "SELL", name: "Head and shoulders",
+    line_chart: true, c: [[0,0,0,30],[0,0,0,62],[0,0,0,46],[0,0,0,78],[0,0,0,46],[0,0,0,62],[0,0,0,36]], mark: [1, 3, 5, 6], line: {y: 46, label: "neckline"},
+    what: "Three highs, the middle one highest, then a close below the neckline.",
+    why: "Each rally got weaker after the highest one. Classic top.",
+    use: "Sell on the neckline break or retest. Stop loss above the right shoulder."
+  }
+};
+
+/* Which timeframes matter (Candlestick Trading Bible + your method). */
+const TF_NOTE = {
+  "Daily": "Daily = the strongest signal on this list. A Daily pattern at a Weekly zone is the Bible's top setup.",
+  "4-hour": "4-hour = swing-trade signal. The Bible's main timeframe. Required for counter-trend trades.",
+  "1-hour": "1-hour = your entry timing only. It counts only at a Daily or Weekly zone, with the trend."
+};
+
+function patInfo(name) {
+  const k = String(name || "").toLowerCase().trim();
+  return PATLIB[k] || PATLIB[k.replace(/ \(.*\)$/, "")] || null;
+}
+
+/* Draw a pattern diagram as inline SVG. opts: {w, h, arrow:true, label, candles(real OHLC, optional), mark} */
+function patSVG(p, opts = {}) {
+  const W = opts.w || 300, H = opts.h || 150, pad = 14, top = (opts.arrow === false ? 10 : 38), bot = 12;
+  const cs = opts.candles || p.c, mark = opts.mark || p.mark;
+  const asLine = (p.line_chart && !opts.candles) || opts.asLine;
+  const n = cs.length, step = (W - pad * 2) / n, bw = Math.max(5, step * 0.5);
+  let lo = Infinity, hi = -Infinity;
+  for (const c of cs) { const v = asLine ? [c[3]] : [c[1], c[2], c[0], c[3]]; for (const x of v) { lo = Math.min(lo, x); hi = Math.max(hi, x); } }
+  if (p.line && !opts.candles) { lo = Math.min(lo, p.line.y); hi = Math.max(hi, p.line.y); }
+  const span = (hi - lo) || 1, Y = v => top + (1 - (v - lo) / span) * (H - top - bot), X = i => pad + step * (i + 0.5);
+  const up = "var(--buy)", dn = "var(--sell)";
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${p.name} diagram" class="patsvg">`;
+  // highlight box behind the pattern candles
+  const m0 = Math.min(...mark), m1 = Math.max(...mark);
+  let mhi = -Infinity, mlo = Infinity;
+  for (const i of mark) { const c = cs[i]; const v = asLine ? [c[3]] : [c[1], c[2]]; for (const x of v) { mhi = Math.max(mhi, x); mlo = Math.min(mlo, x); } }
+  const bx = X(m0) - step * 0.45, bx2 = X(m1) + step * 0.45, by = Y(mhi) - 6, by2 = Y(mlo) + 6;
+  s += `<rect x="${bx}" y="${by}" width="${bx2 - bx}" height="${by2 - by}" rx="6" fill="var(--heat)" fill-opacity=".10" stroke="var(--heat)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+  if (p.line && !opts.candles) {
+    s += `<line x1="${pad}" x2="${W - pad}" y1="${Y(p.line.y)}" y2="${Y(p.line.y)}" stroke="var(--muted)" stroke-dasharray="5 4" stroke-width="1.2"/>`;
+    if (W >= 160) s += `<text x="${pad}" y="${Y(p.line.y) - 4}" font-size="10" fill="var(--muted)" font-family="var(--body)">${p.line.label}</text>`;
+  }
+  if (asLine) {
+    s += `<polyline fill="none" stroke="var(--fg)" stroke-width="2.2" stroke-linejoin="round" points="${cs.map((c, i) => `${X(i)},${Y(c[3])}`).join(" ")}"/>`;
+    cs.forEach((c, i) => { if (opts.candles && !mark.includes(i)) return; if (opts.candles && i !== mark[0] && i !== mark[mark.length - 1]) return; s += `<circle cx="${X(i)}" cy="${Y(c[3])}" r="${mark.includes(i) ? 4 : 2.5}" fill="${mark.includes(i) ? "var(--heat)" : "var(--fg)"}"/>`; });
+  } else {
+    cs.forEach((c, i) => {
+      const [o, h, l, cl] = c, col = cl >= o ? up : dn, x = X(i);
+      s += `<line x1="${x}" x2="${x}" y1="${Y(h)}" y2="${Y(l)}" stroke="${col}" stroke-width="1.6"/>`;
+      const y1 = Y(Math.max(o, cl)), y2 = Y(Math.min(o, cl));
+      s += `<rect x="${x - bw / 2}" y="${y1}" width="${bw}" height="${Math.max(1.6, y2 - y1)}" fill="${col}" rx="1"/>`;
+    });
+  }
+  if (opts.arrow !== false) {
+    const ax = (bx + bx2) / 2, label = opts.label || p.name;
+    const tx = Math.min(Math.max(ax, 60), W - 60);
+    s += `<text x="${tx}" y="12" text-anchor="middle" font-size="11" font-weight="600" fill="var(--heat)" font-family="var(--body)">${label}</text>`;
+    s += `<path d="M${tx} 16 Q ${(tx + ax) / 2} ${(16 + by) / 2 - 2} ${ax} ${by - 3}" fill="none" stroke="var(--heat)" stroke-width="1.8"/>`;
+    s += `<path d="M${ax - 4} ${by - 9} L${ax} ${by - 2} L${ax + 4} ${by - 9}" fill="none" stroke="var(--heat)" stroke-width="1.8" stroke-linecap="round"/>`;
+  }
+  return s + `</svg>`;
+}
+
+/* Spanish and Portuguese for the pattern library: [name, what, why, use] */
+const PATLIB_I18N = {
+  "bullish engulfing": {
+    es: ["Envolvente alcista", "Un cuerpo alcista grande cubre por completo el cuerpo bajista pequeño anterior.", "Los vendedores empujaron hacia abajo y luego los compradores se tragaron todo el movimiento. El control pasó a los compradores en una vela.", "En tu zona con el Semanal y el Diario al alza = gatillo de compra. Stop loss debajo del mínimo de la vela envolvente."],
+    pt: ["Engolfo de alta", "Um corpo de alta grande cobre totalmente o corpo de baixa pequeno anterior.", "Os vendedores empurraram para baixo e os compradores engoliram todo o movimento. O controle passou para os compradores em um candle.", "Na sua zona com o Semanal e o Diário de alta = gatilho de compra. Stop loss abaixo da mínima do candle de engolfo."]
+  },
+  "bearish engulfing": {
+    es: ["Envolvente bajista", "Un cuerpo bajista grande cubre por completo el cuerpo alcista pequeño anterior.", "Los compradores empujaron hacia arriba y luego los vendedores se tragaron todo el movimiento. El control pasó a los vendedores en una vela.", "En tu zona con el Semanal y el Diario a la baja = gatillo de venta. Stop loss arriba del máximo de la vela envolvente."],
+    pt: ["Engolfo de baixa", "Um corpo de baixa grande cobre totalmente o corpo de alta pequeno anterior.", "Os compradores empurraram para cima e os vendedores engoliram todo o movimento. O controle passou para os vendedores em um candle.", "Na sua zona com o Semanal e o Diário de baixa = gatilho de venda. Stop loss acima da máxima do candle de engolfo."]
+  },
+  "bullish pin bar": {
+    es: ["Pin bar alcista (martillo)", "Cuerpo pequeño arriba, mecha inferior larga de al menos 2 veces el cuerpo.", "Los vendedores llevaron el precio a la zona y fueron rechazados con fuerza. La mecha larga muestra a los compradores defendiendo ese nivel.", "Compra al cierre de la vela, stop loss debajo de la mecha. Entrada más segura: espera un retroceso del 50% dentro del pin bar."],
+    pt: ["Pin bar de alta (martelo)", "Corpo pequeno no topo, pavio inferior longo de pelo menos 2 vezes o corpo.", "Os vendedores levaram o preço até a zona e foram rejeitados com força. O pavio longo mostra os compradores defendendo esse nível.", "Compre no fechamento do candle, stop loss abaixo do pavio. Entrada mais segura: espere um recuo de 50% dentro do pin bar."]
+  },
+  "bearish pin bar": {
+    es: ["Pin bar bajista (estrella fugaz)", "Cuerpo pequeño abajo, mecha superior larga de al menos 2 veces el cuerpo.", "Los compradores empujaron hacia la zona y fueron rechazados con fuerza. La mecha larga muestra a los vendedores defendiendo ese nivel.", "Vende al cierre de la vela, stop loss arriba de la mecha. Entrada más segura: espera un retroceso del 50% dentro del pin bar."],
+    pt: ["Pin bar de baixa (estrela cadente)", "Corpo pequeno embaixo, pavio superior longo de pelo menos 2 vezes o corpo.", "Os compradores empurraram até a zona e foram rejeitados com força. O pavio longo mostra os vendedores defendendo esse nível.", "Venda no fechamento do candle, stop loss acima do pavio. Entrada mais segura: espere um recuo de 50% dentro do pin bar."]
+  },
+  "morning star": {
+    es: ["Estrella de la mañana", "Tres velas: una bajista grande, una pequeña de indecisión y una alcista que cierra arriba de la mitad de la primera.", "Los vendedores mandaban, se frenan (vela pequeña) y los compradores toman el control. Se forma un piso.", "En una zona Diaria o Semanal = compra de reversión fuerte. Stop loss debajo del mínimo de la vela del medio."],
+    pt: ["Estrela da manhã", "Três candles: um de baixa grande, um pequeno de indecisão e um de alta que fecha acima do meio do primeiro.", "Os vendedores mandavam, travam (candle pequeno) e os compradores assumem. Um fundo se formando.", "Numa zona Diária ou Semanal = compra de reversão forte. Stop loss abaixo da mínima do candle do meio."]
+  },
+  "evening star": {
+    es: ["Estrella de la tarde", "Tres velas: una alcista grande, una pequeña de indecisión y una bajista que cierra debajo de la mitad de la primera.", "Los compradores mandaban, se frenan y los vendedores toman el control. Se forma un techo.", "En una zona Diaria o Semanal = venta de reversión fuerte. Stop loss arriba del máximo de la vela del medio."],
+    pt: ["Estrela da tarde", "Três candles: um de alta grande, um pequeno de indecisão e um de baixa que fecha abaixo do meio do primeiro.", "Os compradores mandavam, travam e os vendedores assumem. Um topo se formando.", "Numa zona Diária ou Semanal = venda de reversão forte. Stop loss acima da máxima do candle do meio."]
+  },
+  "dragonfly doji": {
+    es: ["Doji libélula", "Apertura y cierre arriba, mecha inferior larga, casi sin cuerpo.", "Los vendedores empujaron fuerte y los compradores devolvieron el precio hasta arriba. Oferta y demanda en equilibrio en el soporte.", "Aviso de que la caída puede terminar. No es entrada sola: espera un cierre alcista (envolvente o ruptura) que lo confirme."],
+    pt: ["Doji libélula", "Abertura e fechamento no topo, pavio inferior longo, quase sem corpo.", "Os vendedores empurraram forte e os compradores trouxeram o preço de volta ao topo. Oferta e demanda em equilíbrio no suporte.", "Aviso de que a queda pode estar acabando. Não é entrada sozinho: espere um fechamento de alta (engolfo ou rompimento) para confirmar."]
+  },
+  "gravestone doji": {
+    es: ["Doji lápida", "Apertura y cierre abajo, mecha superior larga, casi sin cuerpo.", "Los compradores empujaron alto y los vendedores devolvieron el precio hasta abajo. Oferta fuerte en la resistencia.", "Aviso de que la subida puede terminar. No es entrada sola: espera un cierre bajista que lo confirme."],
+    pt: ["Doji lápide", "Abertura e fechamento embaixo, pavio superior longo, quase sem corpo.", "Os compradores empurraram alto e os vendedores trouxeram o preço de volta para baixo. Oferta forte na resistência.", "Aviso de que a alta pode estar acabando. Não é entrada sozinho: espere um fechamento de baixa para confirmar."]
+  },
+  "doji": {
+    es: ["Doji (indecisión)", "Apertura y cierre al mismo precio. Mechas a los dos lados.", "Ni compradores ni vendedores ganaron. Después de un movimiento largo muestra que la tendencia pierde fuerza.", "Nunca es entrada sola. Si estás dentro: el movimiento puede pausar. En tu zona: prepárate y espera la próxima vela."],
+    pt: ["Doji (indecisão)", "Abertura e fechamento no mesmo preço. Pavios dos dois lados.", "Nem compradores nem vendedores venceram. Depois de um movimento longo mostra a tendência perdendo força.", "Nunca é entrada sozinho. Se estiver dentro: o movimento pode pausar. Na sua zona: prepare-se e espere o próximo candle."]
+  },
+  "bullish inside bar": {
+    es: ["Inside bar (harami alcista)", "Una vela pequeña completamente dentro del rango de la vela grande anterior (la vela madre).", "El gran movimiento de los vendedores se frenó en seco. El mercado pausa y decide.", "Compra solo cuando el precio rompa arriba del máximo de la vela madre. Stop loss debajo de la vela madre."],
+    pt: ["Inside bar (harami de alta)", "Um candle pequeno totalmente dentro do range do candle grande anterior (o candle mãe).", "O grande movimento dos vendedores parou na hora. O mercado pausa e decide.", "Compre só quando o preço romper acima da máxima do candle mãe. Stop loss abaixo do candle mãe."]
+  },
+  "bearish inside bar": {
+    es: ["Inside bar (harami bajista)", "Una vela pequeña completamente dentro del rango de la vela grande anterior (la vela madre).", "El gran movimiento de los compradores se frenó en seco. El mercado pausa y decide.", "Vende solo cuando el precio rompa debajo del mínimo de la vela madre. Stop loss arriba de la vela madre."],
+    pt: ["Inside bar (harami de baixa)", "Um candle pequeno totalmente dentro do range do candle grande anterior (o candle mãe).", "O grande movimento dos compradores parou na hora. O mercado pausa e decide.", "Venda só quando o preço romper abaixo da mínima do candle mãe. Stop loss acima do candle mãe."]
+  },
+  "inside bar breakout (bullish)": {
+    es: ["Ruptura de inside bar (arriba)", "El precio cierra arriba del máximo de la vela madre después de una o más inside bars.", "Terminó la pausa y ganaron los compradores. La entrada más segura de la Biblia: opera la ruptura del patrón, no la adivinanza.", "Con la tendencia en tu zona = compra. Stop loss debajo de la vela madre."],
+    pt: ["Rompimento de inside bar (para cima)", "O preço fecha acima da máxima do candle mãe depois de um ou mais inside bars.", "A pausa acabou e os compradores venceram. A entrada mais segura da Bíblia: opere o rompimento do padrão, não o palpite.", "A favor da tendência na sua zona = compra. Stop loss abaixo do candle mãe."]
+  },
+  "inside bar breakout (bearish)": {
+    es: ["Ruptura de inside bar (abajo)", "El precio cierra debajo del mínimo de la vela madre después de una o más inside bars.", "Terminó la pausa y ganaron los vendedores. La entrada más segura de la Biblia: opera la ruptura del patrón, no la adivinanza.", "Con la tendencia en tu zona = venta. Stop loss arriba de la vela madre."],
+    pt: ["Rompimento de inside bar (para baixo)", "O preço fecha abaixo da mínima do candle mãe depois de um ou mais inside bars.", "A pausa acabou e os vendedores venceram. A entrada mais segura da Bíblia: opere o rompimento do padrão, não o palpite.", "A favor da tendência na sua zona = venda. Stop loss acima do candle mãe."]
+  },
+  "inside bar false breakout (bullish)": {
+    es: ["Falsa ruptura (trampa bajista)", "El precio rompe debajo de la vela madre, atrapa a los vendedores y luego vuelve a cerrar adentro y al alza.", "Los grandes jugadores barrieron los stops debajo del mínimo y empujaron al otro lado. Los vendedores atrapados alimentan la subida.", "Compra después de la vela que cierra de vuelta adentro. Stop loss debajo del mínimo de la falsa ruptura."],
+    pt: ["Falso rompimento (armadilha de baixa)", "O preço rompe abaixo do candle mãe, prende os vendedores e depois fecha de volta para dentro e para cima.", "Os grandes players caçaram os stops abaixo da mínima e empurraram para o outro lado. Os vendedores presos alimentam a alta.", "Compre depois do candle que fecha de volta para dentro. Stop loss abaixo da mínima do falso rompimento."]
+  },
+  "inside bar false breakout (bearish)": {
+    es: ["Falsa ruptura (trampa alcista)", "El precio rompe arriba de la vela madre, atrapa a los compradores y luego vuelve a cerrar adentro y a la baja.", "Los grandes jugadores barrieron los stops arriba del máximo y empujaron al otro lado. Los compradores atrapados alimentan la caída.", "Vende después de la vela que cierra de vuelta adentro. Stop loss arriba del máximo de la falsa ruptura."],
+    pt: ["Falso rompimento (armadilha de alta)", "O preço rompe acima do candle mãe, prende os compradores e depois fecha de volta para dentro e para baixo.", "Os grandes players caçaram os stops acima da máxima e empurraram para o outro lado. Os compradores presos alimentam a queda.", "Venda depois do candle que fecha de volta para dentro. Stop loss acima da máxima do falso rompimento."]
+  },
+  "tweezer bottom": {
+    es: ["Pinzas de piso", "Dos velas con el mismo mínimo: una bajista y luego una alcista.", "Los vendedores probaron el mismo mínimo dos veces y fallaron. Los compradores sostienen ese precio.", "En tu zona = gatillo de compra. Stop loss debajo del mínimo compartido."],
+    pt: ["Pinça de fundo", "Dois candles com a mesma mínima: um de baixa e depois um de alta.", "Os vendedores testaram a mesma mínima duas vezes e falharam. Os compradores seguram esse preço.", "Na sua zona = gatilho de compra. Stop loss abaixo da mínima em comum."]
+  },
+  "tweezer top": {
+    es: ["Pinzas de techo", "Dos velas con el mismo máximo: una alcista y luego una bajista.", "Los compradores probaron el mismo máximo dos veces y fallaron. Los vendedores sostienen ese precio.", "En tu zona = gatillo de venta. Stop loss arriba del máximo compartido."],
+    pt: ["Pinça de topo", "Dois candles com a mesma máxima: um de alta e depois um de baixa.", "Os compradores testaram a mesma máxima duas vezes e falharam. Os vendedores seguram esse preço.", "Na sua zona = gatilho de venda. Stop loss acima da máxima em comum."]
+  },
+  "break and retest (support held)": {
+    es: ["Ruptura y retesteo", "El precio cerró arriba de un nivel, volvió a probarlo y aguantó.", "La vieja resistencia se volvió soporte. Los compradores que se perdieron la ruptura entran en el retesteo.", "Compra con el cierre alcista en el retesteo. Stop loss debajo del nivel."],
+    pt: ["Rompimento e reteste", "O preço fechou acima de um nível, voltou para testar e segurou.", "A antiga resistência virou suporte. Os compradores que perderam o rompimento entram no reteste.", "Compre no fechamento de alta no reteste. Stop loss abaixo do nível."]
+  },
+  "break and retest (resistance held)": {
+    es: ["Ruptura y retesteo", "El precio cerró debajo de un nivel, volvió a probarlo y aguantó.", "El viejo soporte se volvió resistencia. Los vendedores que se perdieron la ruptura entran en el retesteo.", "Vende con el cierre bajista en el retesteo. Stop loss arriba del nivel."],
+    pt: ["Rompimento e reteste", "O preço fechou abaixo de um nível, voltou para testar e segurou.", "O antigo suporte virou resistência. Os vendedores que perderam o rompimento entram no reteste.", "Venda no fechamento de baixa no reteste. Stop loss acima do nível."]
+  },
+  "change of character (bullish)": {
+    es: ["Cambio de carácter (al alza)", "En una tendencia bajista, una vela CIERRA arriba del último máximo más bajo.", "La primera señal de que la tendencia bajista terminó. Solo con cierres, nunca con mechas.", "Todavía no es compra. Espera un mínimo más alto y luego un patrón alcista en tu zona."],
+    pt: ["Mudança de caráter (para cima)", "Numa tendência de baixa, um candle FECHA acima da última máxima mais baixa.", "O primeiro sinal de que a tendência de baixa acabou. Só com fechamentos, nunca com pavios.", "Ainda não é compra. Espere uma mínima mais alta e depois um padrão de alta na sua zona."]
+  },
+  "change of character (bearish)": {
+    es: ["Cambio de carácter (a la baja)", "En una tendencia alcista, una vela CIERRA debajo del último mínimo más alto.", "La primera señal de que la tendencia alcista terminó. Solo con cierres, nunca con mechas.", "Todavía no es venta. Espera un máximo más bajo y luego un patrón bajista en tu zona."],
+    pt: ["Mudança de caráter (para baixo)", "Numa tendência de alta, um candle FECHA abaixo da última mínima mais alta.", "O primeiro sinal de que a tendência de alta acabou. Só com fechamentos, nunca com pavios.", "Ainda não é venda. Espere uma máxima mais baixa e depois um padrão de baixa na sua zona."]
+  },
+  "double bottom (neckline break)": {
+    es: ["Doble piso", "Dos mínimos casi al mismo precio y luego un cierre arriba del máximo entre ellos.", "Los vendedores fallaron dos veces en el mismo nivel. La ruptura del cuello confirma que mandan los compradores.", "Compra en la ruptura del cuello o en su retesteo. Stop loss debajo de los mínimos."],
+    pt: ["Fundo duplo", "Duas mínimas quase no mesmo preço e depois um fechamento acima da máxima entre elas.", "Os vendedores falharam duas vezes no mesmo nível. O rompimento da linha de pescoço confirma que os compradores assumiram.", "Compre no rompimento da linha de pescoço ou no reteste. Stop loss abaixo das mínimas."]
+  },
+  "double top (neckline break)": {
+    es: ["Doble techo", "Dos máximos casi al mismo precio y luego un cierre debajo del mínimo entre ellos.", "Los compradores fallaron dos veces en el mismo nivel. La ruptura del cuello confirma que mandan los vendedores.", "Vende en la ruptura del cuello o en su retesteo. Stop loss arriba de los máximos."],
+    pt: ["Topo duplo", "Duas máximas quase no mesmo preço e depois um fechamento abaixo da mínima entre elas.", "Os compradores falharam duas vezes no mesmo nível. O rompimento da linha de pescoço confirma que os vendedores assumiram.", "Venda no rompimento da linha de pescoço ou no reteste. Stop loss acima das máximas."]
+  },
+  "inverse head and shoulders (neckline break)": {
+    es: ["Hombro-cabeza-hombro invertido", "Tres mínimos, el del medio más bajo, y luego un cierre arriba del cuello.", "Cada caída fue más débil después de la más profunda. Piso clásico.", "Compra en la ruptura del cuello o en el retesteo. Stop loss debajo del hombro derecho."],
+    pt: ["Ombro-cabeça-ombro invertido", "Três mínimas, a do meio mais baixa, e depois um fechamento acima da linha de pescoço.", "Cada queda ficou mais fraca depois da mais funda. Fundo clássico.", "Compre no rompimento da linha de pescoço ou no reteste. Stop loss abaixo do ombro direito."]
+  },
+  "head and shoulders (neckline break)": {
+    es: ["Hombro-cabeza-hombro", "Tres máximos, el del medio más alto, y luego un cierre debajo del cuello.", "Cada subida fue más débil después de la más alta. Techo clásico.", "Vende en la ruptura del cuello o en el retesteo. Stop loss arriba del hombro derecho."],
+    pt: ["Ombro-cabeça-ombro", "Três máximas, a do meio mais alta, e depois um fechamento abaixo da linha de pescoço.", "Cada alta ficou mais fraca depois da mais alta. Topo clássico.", "Venda no rompimento da linha de pescoço ou no reteste. Stop loss acima do ombro direito."]
+  }
+};
+const TF_NOTE_I18N = {
+  "Daily": ["Diario = la señal más fuerte de la lista. Un patrón Diario en una zona Semanal es el mejor setup de la Biblia.", "Diário = o sinal mais forte da lista. Um padrão Diário numa zona Semanal é o melhor setup da Bíblia."],
+  "4-hour": ["4 horas = señal de swing. El marco principal de la Biblia. Obligatorio para operaciones contra la tendencia.", "4 horas = sinal de swing. O tempo gráfico principal da Bíblia. Obrigatório para trades contra a tendência."],
+  "1-hour": ["1 hora = solo para el momento de entrada. Cuenta solo en una zona Diaria o Semanal, con la tendencia.", "1 hora = só para o momento da entrada. Vale só numa zona Diária ou Semanal, a favor da tendência."]
+};
+
+/* ---------- Pattern cards (Entry signals box) + Perfect Trade checklist grade ---------- */
+const CHECKLIST_URL = "https://growthhacker2050.github.io/perfect-trade-checklist/";
+const UI = {
+  en: { confirmed: "Confirmed", forming: "Forming · wait for close", warning: "Heads-up", onChart: "On your {p} chart", textbook: "Textbook", here: "here",
+        why: "Why it matters", quiz: "Quiz me", quizOn: "Quiz mode on", reveal: "Reveal name", quizHint: "Name the pattern before you look.", practice: "Hide the names to practise.",
+        candle: "candle", closes: "closes", closed: "closed", entry: "Entry about", sl: "stop loss", pips: "pips", lots: "lots", more: "More patterns", none: "No pattern at your zones on the 1-hour, 4-hour or Daily right now. Patterns only count at your zones, on these timeframes (the Candlestick Bible's rule).",
+        ck: "Checklist", rules: "rules", see: "See every box", open: "Open in my checklist", go: "All 5 rules pass", nogo: "Rules not met", buy: "buy", sell: "sell",
+        what: "What it is", sec: { W: "Weekly", D: "Daily", H4: "4-hour", LTF: "1-hour", ENTRY: "Entry signal", RISK: "Stop loss & take profit" },
+        it: { trend: "Trend", aoi: "At zone (3+ touches)", ema: "Touching 50 EMA", round: "Round number", prev: "Previous structure", rej: "Rejection candle at zone", bnr: "Break & retest / H&S", sos: "Shift of structure", eng: "Engulfing (30m–4H)", sl: "Stop loss", tp: "Take profit" },
+        tiers: { "Weak": "Weak", "Moderate": "Moderate", "Acceptable": "Acceptable", "Good": "Good", "Strong": "Strong", "Very strong": "Very strong", "Outstanding": "Outstanding", "Excellent": "Excellent", "Perfect trade": "Perfect trade" },
+        tf: { "Daily": "Daily", "4-hour": "4-hour", "1-hour": "1-hour" }, gates: ["2 of 3 trends (Weekly / Daily / 4-hour)", "At a Weekly or Daily zone", "Entry signal fired", "Stop loss + take profit set", "Pair + direction picked"] },
+  es: { confirmed: "Confirmado", forming: "Formándose · espera el cierre", warning: "Aviso", onChart: "En tu gráfico de {p}", textbook: "Libro", here: "aquí",
+        why: "Por qué importa", quiz: "Ponme a prueba", quizOn: "Modo prueba activo", reveal: "Ver nombre", quizHint: "Di el nombre del patrón antes de mirar.", practice: "Oculta los nombres para practicar.",
+        candle: "vela", closes: "cierra", closed: "cerró", entry: "Entrada aprox.", sl: "stop loss", pips: "pips", lots: "lotes", more: "Más patrones", none: "No hay patrón en tus zonas en 1 hora, 4 horas o Diario ahora. Los patrones solo cuentan en tus zonas y en estos marcos (regla de la Biblia de las velas).",
+        ck: "Checklist", rules: "reglas", see: "Ver cada casilla", open: "Abrir en mi checklist", go: "Las 5 reglas cumplen", nogo: "Reglas sin cumplir", buy: "compra", sell: "venta",
+        what: "Qué es", sec: { W: "Semanal", D: "Diario", H4: "4 horas", LTF: "1 hora", ENTRY: "Señal de entrada", RISK: "Stop loss y take profit" },
+        it: { trend: "Tendencia", aoi: "En la zona (3+ toques)", ema: "Toca la EMA 50", round: "Número redondo", prev: "Estructura previa", rej: "Vela de rechazo en la zona", bnr: "Ruptura y retesteo / HCH", sos: "Cambio de estructura", eng: "Envolvente (30m–4H)", sl: "Stop loss", tp: "Take profit" },
+        tiers: { "Weak": "Débil", "Moderate": "Moderado", "Acceptable": "Aceptable", "Good": "Bueno", "Strong": "Fuerte", "Very strong": "Muy fuerte", "Outstanding": "Sobresaliente", "Excellent": "Excelente", "Perfect trade": "Trade perfecto" },
+        tf: { "Daily": "Diario", "4-hour": "4 horas", "1-hour": "1 hora" }, gates: ["2 de 3 tendencias (Semanal / Diario / 4 horas)", "En una zona Semanal o Diaria", "Señal de entrada activada", "Stop loss + take profit puestos", "Par + dirección elegidos"] },
+  pt: { confirmed: "Confirmado", forming: "Formando · espere o fechamento", warning: "Atenção", onChart: "No seu gráfico de {p}", textbook: "Livro", here: "aqui",
+        why: "Por que importa", quiz: "Me teste", quizOn: "Modo teste ligado", reveal: "Ver nome", quizHint: "Diga o nome do padrão antes de olhar.", practice: "Esconda os nomes para praticar.",
+        candle: "candle", closes: "fecha", closed: "fechou", entry: "Entrada aprox.", sl: "stop loss", pips: "pips", lots: "lotes", more: "Mais padrões", none: "Nenhum padrão nas suas zonas no 1 hora, 4 horas ou Diário agora. Os padrões só contam nas suas zonas e nesses tempos gráficos (regra da Bíblia dos candles).",
+        ck: "Checklist", rules: "regras", see: "Ver cada caixa", open: "Abrir no meu checklist", go: "As 5 regras passam", nogo: "Regras não cumpridas", buy: "compra", sell: "venda",
+        what: "O que é", sec: { W: "Semanal", D: "Diário", H4: "4 horas", LTF: "1 hora", ENTRY: "Sinal de entrada", RISK: "Stop loss e take profit" },
+        it: { trend: "Tendência", aoi: "Na zona (3+ toques)", ema: "Tocando a EMA 50", round: "Número redondo", prev: "Estrutura anterior", rej: "Candle de rejeição na zona", bnr: "Rompimento e reteste / OCO", sos: "Mudança de estrutura", eng: "Engolfo (30m–4H)", sl: "Stop loss", tp: "Take profit" },
+        tiers: { "Weak": "Fraco", "Moderate": "Moderado", "Acceptable": "Aceitável", "Good": "Bom", "Strong": "Forte", "Very strong": "Muito forte", "Outstanding": "Excepcional", "Excellent": "Excelente", "Perfect trade": "Trade perfeito" },
+        tf: { "Daily": "Diário", "4-hour": "4 horas", "1-hour": "1 hora" }, gates: ["2 de 3 tendências (Semanal / Diário / 4 horas)", "Numa zona Semanal ou Diária", "Sinal de entrada disparou", "Stop loss + take profit definidos", "Par + direção escolhidos"] }
+};
+const TIER_COLOR = [[160, "#19b3a6"], [140, "#1fae86"], [120, "#2f9e5f"], [100, "#4f9a3a"], [90, "#7c9a2e"], [80, "#a39422"], [70, "#b7791f"], [60, "#c8641f"], [0, "#c0392b"]];
+const tierColor = s => TIER_COLOR.find(([m]) => s >= m)[1];
+const curLang = () => (UI[window.__tdLang] ? window.__tdLang : "en");
+const u = () => UI[curLang()];
+const pEsc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function patText(key) {
+  const p = patInfo(key); if (!p) return null;
+  const l = curLang(), t = (PATLIB_I18N[key] || {})[l];
+  return t ? { ...p, name: t[0], what: t[1], why: t[2], use: t[3] } : p;
+}
+const tfNote = tf => curLang() === "en" ? TF_NOTE[tf] : (TF_NOTE_I18N[tf] || [])[curLang() === "es" ? 0 : 1] || TF_NOTE[tf];
+let QUIZ = false; try { QUIZ = localStorage.getItem("tdQuiz") === "1"; } catch (e) {}
+const revealed = new Set();
+
+const DAYS = { es: { Mon: "lun", Tue: "mar", Wed: "mié", Thu: "jue", Fri: "vie", Sat: "sáb", Sun: "dom" }, pt: { Mon: "seg", Tue: "ter", Wed: "qua", Thu: "qui", Fri: "sex", Sat: "sáb", Sun: "dom" } };
+const MONS = { es: { Jan: "ene", Apr: "abr", Aug: "ago", Sep: "sep", Oct: "oct", Dec: "dic" }, pt: { Jan: "jan", Feb: "fev", Apr: "abr", May: "mai", Aug: "ago", Sep: "set", Oct: "out", Dec: "dez" } };
+function locDate(s) {
+  const l = curLang(); if (l === "en") return s;
+  return String(s).replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/, d => DAYS[l][d]).replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/, (m, mo, d) => `${d} ${MONS[l][mo] || mo.toLowerCase()}`);
+}
+function patCard(pair, side, c, sig, tz) {
+  const p = patText(c.pattern); if (!p) return "";
+  const U = u(), id = `${pair}|${c.tf}|${c.pattern}|${c.state}`, hide = QUIZ && !revealed.has(id);
+  const chip = c.state === "forming" ? `<span class="pchip form">${U.forming}</span>` : c.kind === "warning" ? `<span class="pchip warn">${U.warning}</span>` : `<span class="pchip ok">${U.confirmed}</span>`;
+  const when = `${U.candle} ${c.state === "forming" ? U.closes : U.closed} ${pEsc(locDate(tz(c.candle_close_cot)))}`;
+  const real = patSVG(p, { w: 200, h: 130, candles: c.candles, mark: c.mark, label: U.here, asLine: c.candles.length > 12 });
+  const book = patSVG(p, { w: 120, h: 130, arrow: false });
+  const trade = sig ? `<div class="psig m">${U.entry} ${pEsc(sig.entry_now)} · ${U.sl} ${pEsc(sig.stop)} (${pEsc(sig.stop_pips)} ${U.pips})${sig.lots ? ` · ${pEsc(sig.lots)} ${U.lots}` : ""}${sig.risk_usd ? ` · $${pEsc(sig.risk_usd)}` : ""}</div>` : "";
+  return `<li class="pcard notr ${c.kind}">
+    <div class="phd">${chip}<span class="pchip">${U.tf[c.tf] || pEsc(c.tf)}</span><b class="sd-${side.toLowerCase()}">${pEsc(pair)} ${side === "BUY" ? U.buy : U.sell}</b></div>
+    <div class="ptwo"><div><div class="pcap">${U.onChart.replace("{p}", pEsc(pair))}</div>${real}</div><div><div class="pcap">${U.textbook}</div>${book}</div></div>
+    <div class="pnm ${hide ? "hide" : ""}">${pEsc(p.name)}</div>
+    <div class="pwhen">${when}</div>
+    <p>${pEsc(p.use)}</p>${trade}
+    <details class="pwhy"><summary>${U.why}</summary><p><b>${U.what}:</b> ${pEsc(p.what)}</p><p>${pEsc(p.why)}</p><p class="pmut">${pEsc(tfNote(c.tf))}</p></details>
+    ${hide ? `<button type="button" class="pbtn" data-reveal="${pEsc(id)}">${U.reveal}</button> <span class="pmut">${U.quizHint}</span>` : ""}
+  </li>`;
+}
+
+function renderPatternBox(snap, tz) {
+  const box = document.getElementById("signals"); if (!box) return;
+  const U = u(), tfRank = { "Daily": 0, "4-hour": 1, "1-hour": 2 };
+  const all = [];
+  for (const p of snap.pairs || []) for (const c of p.cards || []) all.push({ pair: p.pair, side: p.side, c });
+  all.sort((a, b) => (a.c.state === "forming") - (b.c.state === "forming") || (a.c.kind === "warning") - (b.c.kind === "warning") || tfRank[a.c.tf] - tfRank[b.c.tf]);
+  const tfCode = { "1-hour": "1H", "4-hour": "4H", "Daily": "Daily" };
+  const sigFor = x => x.c.state === "confirmed" && (snap.signals || []).find(s => s.pair === x.pair && s.pattern === x.c.pattern && s.tf === tfCode[x.c.tf]);
+  const html = all.map(x => patCard(x.pair, x.side, x.c, sigFor(x), tz));
+  const qb = document.getElementById("quizBtn");
+  if (qb) { qb.textContent = QUIZ ? U.quizOn : U.quiz; qb.setAttribute("aria-pressed", QUIZ); }
+  box.innerHTML = !html.length ? `<li class="empty notr">${U.none}</li>`
+    : html.slice(0, 5).join("") + (html.length > 5 ? `<li class="notr"><details class="pmore"><summary>${U.more} (${html.length - 5})</summary><ul class="list">${html.slice(5).join("")}</ul></details></li>` : "");
+}
+
+function b64url(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj)); let s = "";
+  bytes.forEach(b => (s += String.fromCharCode(b)));
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_");
+}
+function gradeBlock(p, updated) {
+  const g = p.checklist; if (!g) return "";
+  const U = u(), col = tierColor(g.score), passed = (g.gates || []).filter(x => x.ok).length;
+  const secs = ["W", "D", "H4", "LTF", "ENTRY", "RISK"];
+  const rows = secs.map(s => {
+    const its = (g.items || []).filter(x => x.id.startsWith(s + ":"));
+    return `<div class="gsec"><div class="lab">${U.sec[s]}</div>${its.map(x => `<div class="gi ${x.ok ? "ok" : "no"}"><span>${x.ok ? "✓" : "✗"}</span><div><b>${U.it[x.id.split(":")[1]] || pEsc(x.id)}</b>${x.w ? ` <span class="pmut">+${x.w}%</span>` : ""}<div class="pmut">${pEsc(x.why)}</div></div></div>`).join("")}</div>`;
+  }).join("");
+  const link = CHECKLIST_URL + "#prefill=" + b64url({ ...g.prefill, score: g.score, tier: g.tier, at: updated || "" });
+  return `<div class="grade-box notr">
+    <div class="ghd"><span class="lab">${U.ck}</span><b class="gsc" style="color:${col}">${g.score}%</b><span class="gtier" style="background:${col}">${pEsc(U.tiers[g.tier] || g.tier)}</span><span class="pmut">${passed}/5 ${U.rules}</span></div>
+    <div class="gbar"><i style="width:${Math.min(100, g.score / 2)}%;background:${col}"></i></div>
+    <div class="ggates">${(g.gates || []).map((x, i) => `<span class="${x.ok ? "ok" : "no"}">${x.ok ? "✓" : "✗"} ${pEsc(U.gates[i] || x.label)}</span>`).join("")}</div>
+    <details class="gdet"><summary>${U.see}</summary>${rows}</details>
+    <a class="cbtn" href="${link}" target="_blank" rel="noopener">${U.open}</a>
+  </div>`;
+}
+
+document.addEventListener("click", e => {
+  const r = e.target.closest("[data-reveal]");
+  if (r) { revealed.add(r.dataset.reveal); window.dispatchEvent(new Event("tdpat")); return; }
+  if (e.target.closest("#quizBtn")) { QUIZ = !QUIZ; revealed.clear(); try { localStorage.setItem("tdQuiz", QUIZ ? "1" : "0"); } catch (err) {} window.dispatchEvent(new Event("tdpat")); }
+});
+
+</script>
+<script>
 (() => {
   const $ = id => document.getElementById(id);
   let COT = window.__tdLang === "pt" ? "America/Sao_Paulo" : "America/Bogota";
   const tzOff = () => { let x = zoneHour(new Date(), COT) - zoneHour(new Date(), "UTC"); if (x > 12) x -= 24; if (x < -12) x += 24; return x; };
   // server times are written in Colombia time; shift them when the viewer uses another zone
-  const shiftCot = str => { const dh = tzOff() + 5; if (!dh) return str; const D = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const shiftCot = str => { const dh = Math.round((tzOff() + 5) * 4) / 4; if (!dh) return str; const D = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     return String(str).replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{2}):(\d{2})/g, (m, d, h, mi) => { let H = +h + dh, i = D.indexOf(d); if (H >= 24) { H -= 24; i = (i + 1) % 7; } if (H < 0) { H += 24; i = (i + 6) % 7; } return `${D[i]} ${String(H).padStart(2, "0")}:${mi}`; }); };
   let snap = null;
 
@@ -337,6 +836,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
           <div class="meter" title="How close price is to the zone"><i style="width:${pct}%"></i></div>
           <span class="m">${p.status === "AT ZONE" ? "in zone" : esc(p.pips_away) + " pips"}</span></div>
         <div class="trend">${["weekly", "daily", "h4"].map((k, i) => `<div class="tcell"><span class="lab">${["Weekly", "Daily", "4-hour"][i]}</span><b class="${esc(p.trend?.[k])}">${esc(p.trend?.[k] || "-")}</b></div>`).join("")}</div>
+        ${gradeBlock(p, upd())}
         <dl class="kv"><dt>Zone</dt><dd>${lo} – ${hi}</dd><dt>Your entry</dt><dd>${en}</dd><dt>Stop loss</dt><dd>${sl}</dd><dt>Take profit</dt><dd>${tp}</dd>
           <dt>Setup invalid if price closes ${esc(p.invalid?.side)}</dt><dd>${esc(p.invalid?.level)}</dd></dl>
         <div class="wait">${pats ? `<b>Pattern on the last closed candle:</b> ${pats}` : `<b>Waiting for:</b> price ${p.status === "AT ZONE" ? "to react in the zone, then " : "to reach the zone, then "}${need}.`}</div>
@@ -348,9 +848,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
     const close = pairs.filter(p => p.status === "AT ZONE" || p.status === "NEAR").slice(0, 2);
     $("watchText").textContent = snap.watch_first || (close.length ? close.map(p => `${p.pair} ${p.side === "BUY" ? "buy" : "sell"} — ${statusWord[p.status].toLowerCase()}${p.status === "NEAR" ? `, ${p.pips_away} pips away` : ""}`).join(" · ") : "Nothing near a zone right now. Next check at 3 minutes past the hour.");
 
-    const sig = snap.signals || [];
-    $("signals").innerHTML = sig.length ? sig.map(s => `<li><b>${esc(s.pair)} ${s.side === "BUY" ? "buy" : "sell"}</b> — ${esc(s.pattern)} on the ${s.tf === "1H" ? "1-hour" : "4-hour"} candle (closed ${esc(shiftCot(s.candle_close_cot))})<br><span class="m">Entry about ${esc(s.entry_now)} · stop loss ${esc(s.stop)} (${esc(s.stop_pips)} pips) · 1x/2x/3x risk ${esc((s.r_levels || []).join(" / "))}</span></li>`).join("")
-      : '<li class="empty">No entry pattern at your zones on the last closed 1-hour or 4-hour candle.</li>';
+    renderPatternBox(snap, shiftCot);
     const tr = snap.open_trades || [];
     $("trades").innerHTML = tr.length ? tr.map(t => `<li>${esc(typeof t === "string" ? t : t.text || JSON.stringify(t))}</li>`).join("") : '<li class="empty">No open trades logged. Log trades in #trade-log on Discord.</li>';
     const nw = snap.news || [];
@@ -555,6 +1053,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
   setInterval(() => { const t = document.getElementById("strLive"); if (t) t.hidden = !(strAt && Date.now() - strAt < 150000); }, 2000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pollLive(); });
 
+  window.addEventListener("tdpat", () => render());
   window.addEventListener("tdlang", () => { COT = window.__tdLang === "pt" ? "America/Sao_Paulo" : "America/Bogota"; drawStrip(); tick(); render(); });
   async function load() {
     try {
@@ -753,7 +1252,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
   let busy = false;
   function apply(root) {
     busy = true;
-    const w = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.parentElement && (SKIP.has(n.parentElement.tagName) || n.parentElement.closest("#tvlive, .td-lang"))) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const w = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.parentElement && (SKIP.has(n.parentElement.tagName) || n.parentElement.closest("#tvlive, .td-lang, .notr"))) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
     for (let n; (n = w.nextNode());) {
       let m = memo.get(n);
       if (!m || n.nodeValue !== m.out) m = { src: n.nodeValue };     // the page changed this text: take the new English
