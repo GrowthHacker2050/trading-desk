@@ -60,7 +60,7 @@ h2{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.03e
 /* layout */
 .main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
 @media (max-width:980px){.main{grid-template-columns:minmax(0,1fr)}}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;align-items:start}
 .cbtns{display:flex;gap:8px;flex-wrap:wrap}
 .cbtn{font:600 13px var(--body);padding:8px 12px;border-radius:7px;border:1px solid var(--teal);background:var(--teal);color:var(--teal-fg);cursor:pointer;text-decoration:none}
 .cbtn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
@@ -75,7 +75,7 @@ h2{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.03e
 #chartBox{height:min(62vh,560px);min-height:320px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
 .legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;min-width:0;align-content:start}
 .ctop{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .pair{font-family:var(--display);font-weight:700;font-size:24px;letter-spacing:.02em}
 .side{font:700 12px var(--body);letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px;color:#fff}
@@ -685,11 +685,15 @@ function patCard(pair, side, c, sig, tz) {
     <div class="pnm ${hide ? "hide" : ""}">${pEsc(p.name)}</div>
     <div class="pwhen">${when}</div>
     <p>${pEsc(p.use)}</p>${trade}
-    <details class="pwhy"><summary>${U.why}</summary><p><b>${U.what}:</b> ${pEsc(p.what)}</p><p>${pEsc(p.why)}</p><p class="pmut">${pEsc(tfNote(c.tf))}</p></details>
+    <details class="pwhy" data-k="why:${pEsc(id)}"><summary>${U.why}</summary><p><b>${U.what}:</b> ${pEsc(p.what)}</p><p>${pEsc(p.why)}</p><p class="pmut">${pEsc(tfNote(c.tf))}</p></details>
     ${hide ? `<button type="button" class="pbtn" data-reveal="${pEsc(id)}">${U.reveal}</button> <span class="pmut">${U.quizHint}</span>` : ""}
   </li>`;
 }
 
+const OPEN = new Set();
+document.addEventListener("toggle", e => { const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.dataset.k) return; d.open ? OPEN.add(d.dataset.k) : OPEN.delete(d.dataset.k); }, true);
+document.addEventListener("click", e => { const sm = e.target.closest("summary"); const d = sm && sm.parentElement; if (!d || !d.dataset || !d.dataset.k) return; d.open ? OPEN.delete(d.dataset.k) : OPEN.add(d.dataset.k); }, true);
+function restoreOpen() { document.querySelectorAll("details[data-k]").forEach(d => { const want = OPEN.has(d.dataset.k); if (d.open !== want) d.open = want; }); }
 function renderPatternBox(snap, tz) {
   const box = document.getElementById("signals"); if (!box) return;
   const U = u(), tfRank = { "Daily": 0, "4-hour": 1, "1-hour": 2 };
@@ -702,7 +706,8 @@ function renderPatternBox(snap, tz) {
   const qb = document.getElementById("quizBtn");
   if (qb) { qb.textContent = QUIZ ? U.quizOn : U.quiz; qb.setAttribute("aria-pressed", QUIZ); }
   box.innerHTML = !html.length ? `<li class="empty notr">${U.none}</li>`
-    : html.slice(0, 5).join("") + (html.length > 5 ? `<li class="notr"><details class="pmore"><summary>${U.more} (${html.length - 5})</summary><ul class="list">${html.slice(5).join("")}</ul></details></li>` : "");
+    : html.slice(0, 5).join("") + (html.length > 5 ? `<li class="notr"><details class="pmore" data-k="pmore"><summary>${U.more} (${html.length - 5})</summary><ul class="list">${html.slice(5).join("")}</ul></details></li>` : "");
+  restoreOpen();
 }
 
 function b64url(obj) {
@@ -723,7 +728,7 @@ function gradeBlock(p, updated) {
     <div class="ghd"><span class="lab">${U.ck}</span><b class="gsc" style="color:${col}">${g.score}%</b><span class="gtier" style="background:${col}">${pEsc(U.tiers[g.tier] || g.tier)}</span><span class="pmut">${passed}/5 ${U.rules}</span></div>
     <div class="gbar"><i style="width:${Math.min(100, g.score / 2)}%;background:${col}"></i></div>
     <div class="ggates">${(g.gates || []).map((x, i) => `<span class="${x.ok ? "ok" : "no"}">${x.ok ? "✓" : "✗"} ${pEsc(U.gates[i] || x.label)}</span>`).join("")}</div>
-    <details class="gdet"><summary>${U.see}</summary>${rows}</details>
+    <details class="gdet" data-k="gdet:${pEsc(p.pair)}|${pEsc(p.side)}"><summary>${U.see}</summary>${rows}</details>
     <a class="cbtn" href="${link}" target="_blank" rel="noopener">${U.open}</a>
   </div>`;
 }
