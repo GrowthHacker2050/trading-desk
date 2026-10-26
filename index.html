@@ -77,6 +77,12 @@ h2{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.03e
 .grade{font:600 12px var(--body);padding:2px 8px;border-radius:4px;border:1px solid var(--line)}
 .grade.ctt{border-color:var(--warn);color:var(--warn)}
 .price{margin-left:auto;font:500 18px var(--mono)}
+.ldot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--buy);margin-left:6px;vertical-align:middle;animation:lp 2s ease-in-out infinite}
+@keyframes lp{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.ldot{animation:none}}
+.stale{display:none;background:var(--sell);color:#fff;font:600 13px var(--body);padding:8px 16px;text-align:center}
+.stale.on{display:block}
+.note-old{color:var(--heat)}
 .status{display:flex;align-items:center;gap:10px}
 .chip{font:600 12px var(--body);padding:3px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .chip.AT{background:var(--heat);border-color:var(--heat);color:#fff}
@@ -117,6 +123,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
 .srow .m{text-align:right;font-size:12px}
 </style>
 
+<div class="stale" id="stale" role="alert"></div>
 <header>
   <div class="hwrap">
     <h1>Matt's Trading Desk</h1>
@@ -200,7 +207,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
       </section>
     </aside>
   </div>
-  <p class="foot">Prices: OANDA, refreshed every 15 minutes. Trend: market structure on closed candles. Your call on every trade — not financial advice.</p>
+  <p class="foot">Prices: OANDA, live every 15 seconds while this page is open. Levels and trends: refreshed hourly. Your call on every trade — confirm on your broker before entering. Not financial advice.</p>
 </div>
 
 <dialog id="chartDlg" aria-label="Pair chart">
@@ -271,7 +278,15 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
     if (nx) nx.innerHTML = `London opens in <b class="m">${Math.floor(nextLondon)}h ${Math.round((nextLondon % 1) * 60)}m</b> · New York opens in <b class="m">${Math.floor(nextNY)}h ${Math.round((nextNY % 1) * 60)}m</b>`;
     if (snap) {
       const mins = Math.round((Date.now() - Date.parse(snap.updated_utc)) / 60000);
-      $("fresh").textContent = `Market data from ${snap.updated_cot} Colombia time (${mins} min ago)`;
+      const secs = liveAt ? Math.round((Date.now() - liveAt) / 1000) : null;
+      const liveOk = secs !== null && secs < 60;
+      $("fresh").textContent = liveOk
+        ? `Live prices (${secs}s ago) · levels and trends from ${snap.updated_cot} Colombia time (${mins} min ago)`
+        : `Market data from ${snap.updated_cot} Colombia time (${mins} min ago)`;
+      const old = liveOk ? 0 : liveAt ? Math.round((Date.now() - liveAt) / 60000) : mins;
+      const st = $("stale"), bad = !liveOk && Math.min(mins, old) >= 20;
+      st.classList.toggle("on", bad);
+      if (bad) st.textContent = `Prices are not updating. Data is ${Math.min(mins, old)} min old — confirm on your chart before you trade.`;
     }
   }
 
@@ -293,7 +308,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
       const need = isCtt(p.grade) ? "a 4-hour entry pattern (counter-trend)" : "a 1-hour or 4-hour entry pattern";
       return `<article class="card">
         <div class="ctop"><span class="pair">${esc(p.pair)}</span><span class="side ${p.side}">${buy ? "Buy" : "Sell"}</span>
-          <span class="grade ${isCtt(p.grade) ? "ctt" : ""}">Grade ${esc(gradeTxt(p.grade))}</span><span class="price">${esc(p.price)}</span></div>
+          <span class="grade ${isCtt(p.grade) ? "ctt" : ""}">Grade ${esc(gradeTxt(p.grade))}</span><span class="price">${esc(p.price)}${p.live ? '<i class="ldot" title="Live price"></i>' : ""}</span></div>
         <div class="status"><span class="chip ${p.status.split(" ")[0]}">${statusWord[p.status] || esc(p.status)}</span>
           <div class="meter" title="How close price is to the zone"><i style="width:${pct}%"></i></div>
           <span class="m">${p.status === "AT ZONE" ? "in zone" : esc(p.pips_away) + " pips"}</span></div>
@@ -446,11 +461,60 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
   $("chartDlg").addEventListener("close", () => { clearBox(); cur = null; });
   $("chartDlg").addEventListener("click", e => { if (e.target === $("chartDlg")) $("chartDlg").close(); });
 
+  // ---------- live prices (every 15 seconds while the page is visible) ----------
+  let live = {}, liveAt = 0, liveBusy = false;
+  const pipOf = p => p === "XAUUSD" ? 0.1 : /JPY/.test(p) ? 0.01 : 0.0001;
+  const COLS = ["close", "ATR|240", "high|60", "low|60"];
+  async function scanTv(market, tickers) {
+    if (!tickers.length) return [];
+    const r = await fetch(`https://scanner.tradingview.com/${market}/scan`, { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      body: JSON.stringify({ symbols: { tickers }, columns: COLS }), cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    return (await r.json()).data || [];
+  }
+  // same rule as the Discord agent: invalid past the stop, at zone within 1/4 of the 4-hour range or touched this hour, near within one 4-hour range
+  function liveStatus(p, q) {
+    const [lo, hi] = p.zone, price = q.price, atr = q.atr || 0, inv = p.invalid || {};
+    if ((inv.side === "above" && price > inv.level) || (inv.side === "below" && price < inv.level)) return ["INVALID", 0];
+    const dist = price >= lo && price <= hi ? 0 : Math.min(Math.abs(price - lo), Math.abs(price - hi));
+    if (dist <= 0.25 * atr || (q.hh >= lo && q.hl <= hi)) return ["AT ZONE", dist];
+    return [dist <= atr ? "NEAR" : "FAR", dist];
+  }
+  function applyLive() {
+    if (!snap || !liveAt || Date.now() - liveAt > 60000) return false;
+    let n = 0;
+    for (const p of snap.pairs || []) {
+      const q = live[p.pair]; if (!q || !Array.isArray(p.zone)) continue;
+      const [st, dist] = liveStatus(p, q);
+      p.price = q.price; p.status = st; p.pips_away = Math.round(dist / pipOf(p.pair)); p.live = true; n++;
+    }
+    if (n) snap.watch_first = "";
+    return n > 0;
+  }
+  async function pollLive() {
+    if (liveBusy || document.hidden || !snap) return;
+    liveBusy = true;
+    try {
+      const pairs = [...new Set((snap.pairs || []).map(p => p.pair))];
+      const [fx, cfd] = await Promise.all([scanTv("forex", pairs.filter(p => p !== "XAUUSD").map(p => "OANDA:" + p)),
+                                           scanTv("cfd", pairs.includes("XAUUSD") ? ["OANDA:XAUUSD"] : [])]);
+      const next = {};
+      for (const row of [...fx, ...cfd]) {
+        const [price, atr, hh, hl] = row.d || [];
+        if (typeof price === "number") next[row.s.split(":")[1]] = { price, atr, hh, hl };
+      }
+      if (Object.keys(next).length) { live = next; liveAt = Date.now(); if (applyLive()) render(); }
+    } catch (e) { /* keep the last data; the warning bar shows if it stays stale */ }
+    finally { liveBusy = false; }
+  }
+  setInterval(pollLive, 15000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollLive(); });
+
   async function load() {
     try {
       const r = await fetch("snapshot.json?t=" + Date.now(), { cache: "no-store" });
       if (!r.ok) throw new Error(r.status);
-      snap = await r.json(); render();
+      snap = await r.json(); applyLive(); render(); if (!liveAt) pollLive();
     } catch (e) { $("fresh").textContent = "Live data not loaded yet. Retrying..."; }
   }
   load(); setInterval(load, 60 * 1000);
@@ -483,7 +547,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
     ["Enter balance, risk % and stop loss distance.", "Pon el saldo, el % de riesgo y la distancia del stop loss.", "Coloque o saldo, o % de risco e a distância do stop loss."],
     ["Exchange rate not loaded yet.", "El tipo de cambio todavía no cargó.", "O câmbio ainda não carregou."],
     ["per standard lot. Counter-trend: use half.", "por lote estándar. Contra-tendencia: usa la mitad.", "por lote padrão. Contra a tendência: use a metade."],
-    ["Prices: OANDA, refreshed every 15 minutes. Trend: market structure on closed candles. Your call on every trade — not financial advice.", "Precios: OANDA, actualizados cada 15 minutos. Tendencia: estructura de mercado en velas cerradas. Cada operación es tu decisión — no es asesoría financiera.", "Preços: OANDA, atualizados a cada 15 minutos. Tendência: estrutura de mercado em candles fechados. Cada trade é decisão sua — não é recomendação de investimento."],
+    ["Prices: OANDA, live every 15 seconds while this page is open. Levels and trends: refreshed hourly. Your call on every trade — confirm on your broker before entering. Not financial advice.", "Precios: OANDA, en vivo cada 15 segundos mientras la página está abierta. Niveles y tendencias: cada hora. Cada operación es tu decisión — confirma en tu bróker antes de entrar. No es asesoría financiera.", "Preços: OANDA, ao vivo a cada 15 segundos com a página aberta. Níveis e tendências: a cada hora. Cada trade é decisão sua — confirme na sua corretora antes de entrar. Não é recomendação de investimento."],
     ["Nothing near a zone right now. Next check at 3 minutes past the hour.", "Nada cerca de una zona ahora. Próxima revisión 3 minutos después de la hora.", "Nada perto de uma zona agora. Próxima checagem 3 minutos depois da hora."],
     ["No setups loaded for this week. Post your Sunday screenshots in #ask-claude.", "No hay setups cargados esta semana. Publica tus pantallazos del domingo en #ask-claude.", "Nenhum setup carregado nesta semana. Poste seus prints de domingo em #ask-claude."],
     ["Live data not loaded yet. Retrying...", "Los datos en vivo todavía no cargan. Reintentando...", "Os dados ao vivo ainda não carregaram. Tentando de novo..."],
@@ -512,6 +576,11 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
     ["London opens in ", "Londres abre en ", "Londres abre em "],
     ["New York opens in ", "Nueva York abre en ", "Nova York abre em "],
     ["Market data from ", "Datos del mercado de las ", "Dados do mercado das "],
+    ["Live prices (", "Precios en vivo (", "Preços ao vivo ("],
+    [" · levels and trends from ", " · niveles y tendencias de las ", " · níveis e tendências das "],
+    ["Prices are not updating. Data is ", "Los precios no se están actualizando. Los datos tienen ", "Os preços não estão atualizando. Os dados têm "],
+    [" min old — confirm on your chart before you trade.", " min — confirma en tu gráfico antes de operar.", " min — confirme no seu gráfico antes de operar."],
+    ["Live price", "Precio en vivo", "Preço ao vivo"],
     ["Waiting for market data", "Esperando datos del mercado", "Esperando dados do mercado"],
     ["Pairs this week · levels valid until ", "Pares de esta semana · niveles válidos hasta ", "Pares desta semana · níveis válidos até "],
     ["private: use the calculator", "privado: usa la calculadora", "privado: use a calculadora"],
@@ -595,6 +664,7 @@ button.reset{font:500 12px var(--body);background:none;border:1px solid var(--li
     [/ lots$/, [" lotes", " lotes"]],
     [/ hours$/, [" horas", " horas"]],
     [/\((\d+) min ago\)/, ["(hace $1 min)", "(há $1 min)"]],
+    [/\((\d+)s ago\)/, ["(hace $1 s)", "(há $1 s)"]],
     [/ Colombia$/, [" Colombia", " Colômbia"]],
     [/^([A-Z0-9]{6}) buy$/, ["$1 compra", "$1 compra"]], [/^([A-Z0-9]{6}) sell$/, ["$1 venta", "$1 venda"]],
     [/^([A-Z0-9]{6}) buy — /, ["$1 compra — ", "$1 compra — "]], [/^([A-Z0-9]{6}) sell — /, ["$1 venta — ", "$1 venda — "]],
