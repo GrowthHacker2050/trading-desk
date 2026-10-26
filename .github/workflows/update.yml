@@ -2,7 +2,7 @@ name: Update trading desk
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # every 15 minutes (GitHub can run a few minutes late)
+    - cron: "10 * * * *"   # every 15 minutes (GitHub can run a few minutes late)
   workflow_dispatch: {}      # "Run workflow" button for a manual refresh
 
 permissions:
