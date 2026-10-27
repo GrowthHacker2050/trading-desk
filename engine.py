@@ -453,15 +453,23 @@ def pip_value_usd(pair, q):
     quote = pair[3:]
     if pair == "XAUUSD" or quote == "USD": return 10.0
     if quote == "JPY": return 1000 / q["USDJPY"]["price"]
-    return 10 / q[f"USD{quote}"]["price"]
+    if f"USD{quote}" in q: return 10 / q[f"USD{quote}"]["price"]   # CAD, CHF
+    return 10 * q[f"{quote}USD"]["price"]                          # AUD, NZD, GBP, EUR quotes (e.g. GBPAUD)
 
 
 def lots(cfg, pair, grade, sl_pips, q):
+    """Balance-free sizing at the risk % in config (5% by default, half for counter-trend).
+    Lot size = balance x pct / (stop pips x usd_per_pip_1lot). Matt supplies the balance himself."""
     r = cfg.get("risk", {})
-    if not r.get("balance") or not r.get("pct_a"): return None
-    pct = r.get("pct_ctt") or r["pct_a"] / 2 if "CTT" in grade else r["pct_a"]
-    raw = r["balance"] * pct / 100 / (sl_pips * pip_value_usd(pair, q))
-    return max(0.01, int(raw * 100 + 1e-9) / 100)  # rounded DOWN; 0.01 is the broker minimum
+    pct = r.get("pct_a") or 5
+    if "CTT" in grade: pct = r.get("pct_ctt") or pct / 2
+    if not sl_pips: return None
+    pv = pip_value_usd(pair, q)
+    per100 = 100 * pct / 100 / (sl_pips * pv)
+    return {"risk_pct": pct, "stop_pips": round(sl_pips, 1), "usd_per_pip_1lot": round(pv, 2),
+            "lots_per_100_balance": round(per100, 4),
+            "min_balance_for_0_01_lot": round(sl_pips * pv * 0.01 / (pct / 100), 2),
+            "dollar_risk_at_0_01_lot": round(sl_pips * pv * 0.01, 2)}
 
 
 def session(now):
@@ -525,12 +533,10 @@ def scan():
                                     "entry_now": ent, "stop": round(stop, 5), "stop_pips": round(slp, 1),
                                     "r_levels": [round(ent + k * (ent - stop), 5) for k in (1, 2, 3)],
                                     "lots": lots(cfg, pair, grade, slp, q), "your_plan_entry_sl_tp": [entry, sl, tp]})
-                    lt = signals[-1]["lots"]
-                    if lt: signals[-1]["risk_usd"] = round(lt * slp * pip_value_usd(pair, q), 2)
     ccy = sorted({s[0][:3] for s in setups} | {s[0][3:] for s in setups})
     return {"now_cot": now.astimezone(COT).strftime("%a %b %d %H:%M"), "session": sess, "paused": cfg.get("paused", False),
             "expires": cfg.get("expires"), "rows": rows, "proximity_alerts": alerts, "entry_signals": signals, "heads_up": heads_up,
-            "news_next_3h": news(ccy), "risk_set": bool(cfg.get("risk", {}).get("balance"))}
+            "news_next_3h": news(ccy), "risk_set": bool(cfg.get("risk", {}).get("pct_a"))}
 
 
 def trend(b, k):
